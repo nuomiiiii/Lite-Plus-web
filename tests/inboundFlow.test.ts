@@ -5,7 +5,7 @@ import test from "node:test";
 const source = readFileSync(new URL("../src/pages/admin/nodemgt/index.tsx", import.meta.url), "utf8");
 
 test("existing inbound keeps empty flow instead of filling vision", () => {
-  assert.match(source, /flow: str\(row\?\.flow, existing \? "" : defaultInboundFlow\(protocol, transport, security, core\)\)/);
+  assert.match(source, /flow: flowForCore\(str\(row\?\.flow, existing \? "" : defaultInboundFlow\(protocol, transport, security, core\)\), core\)/);
 });
 
 test("tls inbound defaults to empty flow, reality still defaults to vision", () => {
@@ -16,8 +16,13 @@ test("tls inbound defaults to empty flow, reality still defaults to vision", () 
   );
 });
 
-test("sing-box inbounds cannot use vision flow", () => {
-  assert.match(source, /if \(core === "sing-box"\) return false;/);
+test("sing-box vless tcp tls/reality can use the same vision flow as xray", () => {
+  assert.match(source, /function canUseFlow\(protocol: string, transport: string, security: string, _core = "xray"\) \{/);
+  assert.doesNotMatch(source, /if \(core === "sing-box"\) return false;/);
+  assert.match(source, /return protocol === "vless" && transport === "tcp" && \(security === "tls" \|\| security === "reality"\);/);
+  assert.match(source, /if \(core === "sing-box"\) return \["", "xtls-rprx-vision"\] as const;/);
+  assert.match(source, /if \(core === "sing-box" && flow\.toLowerCase\(\)\.includes\("vision"\)\) return "xtls-rprx-vision";/);
+  assert.match(source, /options=\{flowsFor\(sheet\.form\.core\)\.map/);
 });
 
 test("choosing reality fills a short id instead of leaving the field blank", () => {

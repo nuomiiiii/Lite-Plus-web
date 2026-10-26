@@ -178,9 +178,20 @@ function securitiesFor(protocol: string, transport: string) {
   return ["none", "tls"];
 }
 
-function canUseFlow(protocol: string, transport: string, security: string, core = "xray") {
-  if (core === "sing-box") return false;
+function canUseFlow(protocol: string, transport: string, security: string, _core = "xray") {
   return protocol === "vless" && transport === "tcp" && (security === "tls" || security === "reality");
+}
+
+function flowsFor(core = "xray") {
+  if (core === "sing-box") return ["", "xtls-rprx-vision"] as const;
+  return FLOWS;
+}
+
+function flowForCore(flow: string, core = "xray") {
+  const allowed = flowsFor(core) as readonly string[];
+  if (allowed.includes(flow)) return flow;
+  if (core === "sing-box" && flow.toLowerCase().includes("vision")) return "xtls-rprx-vision";
+  return "";
 }
 
 function defaultInboundFlow(protocol: string, transport: string, security: string, core = "xray") {
@@ -448,7 +459,7 @@ function inboundForm(row?: any): FormMap {
     public_host: str(row?.public_host),
     transport,
     security,
-    flow: str(row?.flow, existing ? "" : defaultInboundFlow(protocol, transport, security, core)),
+    flow: flowForCore(str(row?.flow, existing ? "" : defaultInboundFlow(protocol, transport, security, core)), core),
     sni: str(row?.sni),
     tls_domain: str(row?.tls_domain),
     alpn: str(row?.alpn),
@@ -679,18 +690,19 @@ function subscriptionForm(row?: any): FormMap {
 
 function outboundForm(row?: any): FormMap {
   const protocol = str(row?.protocol, "vless");
+  const core = str(row?.core, defaultCore(protocol));
   return {
     id: str(row?.id),
     name: str(row?.name),
     node_uuid: str(row?.node_uuid),
     protocol,
-    core: str(row?.core, defaultCore(protocol)),
+    core,
     address: str(row?.address),
     dest_port: str(row?.dest_port || ""),
     username: str(row?.username),
     password: str(row?.password),
     uuid: str(row?.uuid),
-    flow: str(row?.flow),
+    flow: flowForCore(str(row?.flow), core),
     domain_strategy: str(row?.domain_strategy, "AsIs"),
     transport: str(row?.transport, "tcp"),
     security: str(row?.security, "none"),
@@ -2363,7 +2375,7 @@ export default function PlusAdminPage() {
       uuid: parsed.uuid || "",
       password: parsed.password || "",
       username: parsed.username || "",
-      flow: parsed.flow || "",
+      flow: flowForCore(parsed.flow || "", defaultCore(protocol)),
       transport: parsed.transport || "tcp",
       security: parsed.security || "none",
       sni: parsed.sni || "",
@@ -2410,7 +2422,7 @@ export default function PlusAdminPage() {
         uuid: fields.protocol === "shadowsocks" ? uuidForInbound(inbound, users) : uuid,
         username: fields.protocol === "http" || fields.protocol === "socks" ? httpUser : sheet?.form.username || "",
         password: fields.protocol === "shadowsocks" ? ssPassword : httpAcct?.pass || uuid || sheet?.form.password || "",
-        flow: fields.flow || sheet?.form.flow || "",
+        flow: flowForCore(fields.flow || sheet?.form.flow || "", fields.core || sheet?.form.core),
       });
       setImportLink("");
       if (!fields.address) {
@@ -3735,7 +3747,7 @@ export default function PlusAdminPage() {
                       setForm({
                         core: value,
                         flow: canUseFlow(sheet.form.protocol, sheet.form.transport, sheet.form.security, value)
-                          ? sheet.form.flow || defaultInboundFlow(sheet.form.protocol, sheet.form.transport, sheet.form.security, value)
+                          ? flowForCore(sheet.form.flow, value) || defaultInboundFlow(sheet.form.protocol, sheet.form.transport, sheet.form.security, value)
                           : "",
                       })
                     }
@@ -3906,7 +3918,7 @@ export default function PlusAdminPage() {
                 label={t("nodemgt.col_flow")}
                 value={sheet.form.flow}
                 onChange={(value) => setForm({ flow: value })}
-                options={FLOWS.map((value) => ({ value, label: value || t("nodemgt.flow_none") }))}
+                options={flowsFor(sheet.form.core).map((value) => ({ value, label: value || t("nodemgt.flow_none") }))}
                 helper={t("nodemgt.flow_inbound_help")}
               />
             ) : null}
@@ -4297,7 +4309,7 @@ export default function PlusAdminPage() {
                 }}
                 options={OUTBOUND_PROTOCOLS.map((value) => ({ value, label: t(`nodemgt.outbound_${value}`) }))}
               />
-              <SelectField label={t("nodemgt.col_core")} value={sheet.form.core} onChange={(value) => setForm({ core: value })} options={coresFor(sheet.form.protocol).map((value) => ({ value, label: displayCore(value) }))} />
+              <SelectField label={t("nodemgt.col_core")} value={sheet.form.core} onChange={(value) => setForm({ core: value, flow: flowForCore(sheet.form.flow, value) })} options={coresFor(sheet.form.protocol).map((value) => ({ value, label: displayCore(value) }))} />
             </TwoCol>
             {sheet.form.protocol === "freedom" ? (
               <SelectField
@@ -4322,7 +4334,7 @@ export default function PlusAdminPage() {
                     label={t("nodemgt.col_flow")}
                     value={sheet.form.flow}
                     onChange={(value) => setForm({ flow: value })}
-                    options={FLOWS.map((value) => ({ value, label: value || t("nodemgt.flow_none") }))}
+                    options={flowsFor(sheet.form.core).map((value) => ({ value, label: value || t("nodemgt.flow_none") }))}
                   />
                 ) : null}
                 {sheet.form.protocol === "trojan" || sheet.form.protocol === "shadowsocks" || sheet.form.protocol === "anytls" || sheet.form.protocol === "socks" || sheet.form.protocol === "http" ? (
