@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import { toast } from "sonner";
+import { writeClipboardText } from "@/utils/clipboard";
 import { ArrowDown, Copy, Image } from "@/components/admin/muiIcons";
 import { nodemgtWarningMessage } from "./inboundToOutbound";
 import { parseShareLink } from "./shareLink";
@@ -26,11 +27,11 @@ export type SubPreview = {
   warnings?: string[];
 };
 
-function copyValue(value: string, ok: string) {
+function copyValue(value: string, ok: string, fail: string) {
   if (!value) return;
-  void navigator.clipboard.writeText(value).then(
+  void writeClipboardText(value).then(
     () => toast.success(ok),
-    () => toast.error(ok),
+    () => toast.error(fail),
   );
 }
 
@@ -110,6 +111,7 @@ function QrPanel({
     };
   }, [value]);
   const copied = t("nodemgt.copied");
+  const copyFailed = t("nodemgt.copy_failed");
   return (
     <Box
       sx={{
@@ -140,7 +142,7 @@ function QrPanel({
           </Box>
         ) : null}
         <Box sx={{ flex: 1 }} />
-        <IconButton size="small" aria-label={t("nodemgt.copy_link")} title={t("nodemgt.copy_link")} onClick={() => copyValue(value, copied)}>
+        <IconButton size="small" aria-label={t("nodemgt.copy_link")} title={t("nodemgt.copy_link")} onClick={() => copyValue(value, copied, copyFailed)}>
           <Copy size={16} />
         </IconButton>
         <IconButton

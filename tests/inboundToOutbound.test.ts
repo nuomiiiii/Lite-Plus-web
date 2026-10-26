@@ -150,6 +150,8 @@ test("admin RPC errors map to nodemgt i18n keys instead of raw English", () => {
     ["RPC Error -32602: traffic_reset_day must be 0-31", "user", "nodemgt.invalid_reset_day"],
     ["RPC Error -32602: invalid subscription port", "", "nodemgt.invalid_sub_port"],
     ["RPC Error -32602: invalid reverse proxy port", "", "nodemgt.invalid_rp_port"],
+    ["RPC Error -32602: invalid inbound port", "inbound", "nodemgt.invalid_inbound_port"],
+    ["RPC Error -32602: nodemgt: conflict: certificate is in use", "cert", "nodemgt.cert_in_use"],
     ["RPC Error -32602: subscription path required", "", "nodemgt.sub_path_required"],
     ["RPC Error -32602: certificate required", "inbound", "nodemgt.no_certs"],
     ["RPC Error -32602: nodemgt: not found", "", "nodemgt.not_found"],

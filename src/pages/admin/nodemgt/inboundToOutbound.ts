@@ -245,6 +245,8 @@ const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
   [/traffic_reset_day/i, "nodemgt.invalid_reset_day"],
   [/invalid subscription port/i, "nodemgt.invalid_sub_port"],
   [/invalid reverse proxy port/i, "nodemgt.invalid_rp_port"],
+  [/invalid inbound port/i, "nodemgt.invalid_inbound_port"],
+  [/certificate is in use/i, "nodemgt.cert_in_use"],
   [/subscription path required/i, "nodemgt.sub_path_required"],
   [/username required/i, "nodemgt.username_required"],
   [/user required/i, "nodemgt.user_required"],

@@ -6,6 +6,7 @@ test("preview decodes UTF-8 subscription nodes without treating rule and DNS URL
   const link = "trojan://test@node.example:443#香港";
   assert.deepEqual(parsePreviewLinks(Buffer.from(link).toString("base64")), [link]);
   assert.deepEqual(parsePreviewLinks(`${link}\nhttps://rules.example/list\nhttps://dns.example/dns-query`), [link]);
+  assert.deepEqual(parsePreviewLinks("http://user:pass@proxy.example:8080"), ["http://user:pass@proxy.example:8080"]);
   assert.deepEqual(parsePreviewLinks("not base64"), []);
   assert.deepEqual(parsePreviewLinks(""), []);
 });

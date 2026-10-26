@@ -40,6 +40,7 @@ import {
   Activity,
   ArrowDown,
   ArrowUp,
+  Ban,
   Clock3,
   Copy,
   Cpu,
@@ -49,6 +50,9 @@ import {
   LockKeyhole,
   Network,
   Pencil,
+  Play,
+  QrCode,
+  RotateCw,
   Shield,
   Calendar,
   Plus,
@@ -73,6 +77,7 @@ import {
 } from "@/components/ui/table";
 import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 import { useRPC2Call } from "@/contexts/RPC2Context";
+import { writeClipboardText } from "@/utils/clipboard";
 import { toast } from "sonner";
 import { displayExpiryInput, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, uuidForInbound } from "./inboundToOutbound";
 import { parseShareLink } from "./shareLink";
@@ -136,12 +141,10 @@ const CORES = ["xray", "sing-box"] as const;
 const SUB_FORMATS = ["xray", "clash", "sing-box", "base64", "mihomo", "loon", "surge", "surge-mac", "stash"] as const;
 const FINGERPRINTS = ["edge", "chrome", "firefox", "safari", "ios", "qq", "random"] as const;
 const DEFAULT_FINGERPRINT = "edge";
+const DEFAULT_REALITY_DEST = "addons.mozilla.org:443";
 const REALITY_DESTS = [
-  "www.microsoft.com:443",
-  "www.cloudflare.com:443",
-  "www.apple.com:443",
-  "dl.google.com:443",
   "addons.mozilla.org:443",
+  "www.microsoft.com:443",
 ] as const;
 const SS_METHODS = [
   "2022-blake3-aes-128-gcm",
@@ -277,7 +280,7 @@ function settingOn(value: unknown) {
 function subCfgFromSettings(settingRow?: Record<string, any> | null) {
   const reuse = settingOn(settingRow?.sub_reuse_https);
   return {
-    sub_listen_port: str(settingRow?.sub_listen_port, ""),
+    sub_listen_port: Number(settingRow?.sub_listen_port || 0) > 0 ? str(settingRow?.sub_listen_port) : "",
     sub_public_port: Number(settingRow?.sub_public_port || 0) > 0 ? str(settingRow?.sub_public_port) : "",
     sub_path: str(settingRow?.sub_path, ""),
     sub_public_host: str(settingRow?.sub_public_host, ""),
@@ -450,7 +453,7 @@ function inboundForm(row?: any): FormMap {
     tls_domain: str(row?.tls_domain),
     alpn: str(row?.alpn),
     cert_id: str(row?.cert_id),
-    reality_dest: str(row?.reality_dest, security === "reality" ? "www.microsoft.com:443" : ""),
+    reality_dest: str(row?.reality_dest, security === "reality" ? DEFAULT_REALITY_DEST : ""),
     reality_server_names: str(row?.reality_server_names),
     reality_short_id: str(row?.reality_short_id),
     fingerprint: str(row?.fingerprint, DEFAULT_FINGERPRINT),
@@ -1230,6 +1233,16 @@ function SelectField({
       helperText={helper}
       value={value}
       onChange={(event) => onChange(event.target.value)}
+      slotProps={{
+        inputLabel: { shrink: true },
+        select: {
+          displayEmpty: true,
+          renderValue: (selected) => {
+            const current = String(selected ?? "");
+            return options.find((option) => option.value === current)?.label || current;
+          },
+        },
+      }}
       sx={sheetInputSx}
     >
       {options.map((option) => (
@@ -1335,6 +1348,7 @@ function MultiSelectField({
   onChange,
   options,
   helper,
+  emptyLabel,
   searchable = false,
 }: {
   label: string;
@@ -1342,6 +1356,7 @@ function MultiSelectField({
   onChange: (value: string[]) => void;
   options: SelectOption[];
   helper?: string;
+  emptyLabel?: string;
   searchable?: boolean;
 }) {
   if (searchable) {
@@ -1368,12 +1383,17 @@ function MultiSelectField({
         onChange(typeof next === "string" ? next.split(",") : next);
       }}
       slotProps={{
+        inputLabel: { shrink: Boolean(emptyLabel) || value.length > 0 },
         select: {
           multiple: true,
-          renderValue: (selected) =>
-            (selected as string[])
+          displayEmpty: Boolean(emptyLabel),
+          renderValue: (selected) => {
+            const ids = selected as string[];
+            if (!ids.length) return emptyLabel || "";
+            return ids
               .map((id) => options.find((option) => option.value === id)?.label || id)
-              .join("、"),
+              .join("、");
+          },
         },
       }}
       sx={sheetInputSx}
@@ -2518,6 +2538,11 @@ export default function PlusAdminPage() {
           setError(t("nodemgt.share_other_required"));
           return;
         }
+        const inboundPort = Number(form.port || 443);
+        if (!Number.isInteger(inboundPort) || inboundPort < 1 || inboundPort > 65535) {
+          setError(t("nodemgt.invalid_inbound_port"));
+          return;
+        }
         saved = await call("admin:nodemgt.inbound.upsert", inboundUpsertBody(form));
       } else if (sheet.kind === "user") {
         const inboundIds = form.inbound_ids.split(",").map((item) => item.trim()).filter(Boolean);
@@ -2708,8 +2733,12 @@ export default function PlusAdminPage() {
       toast.error(t("nodemgt.empty"));
       return;
     }
-    await navigator.clipboard.writeText(url);
-    toast.success(t("nodemgt.copied"));
+    try {
+      await writeClipboardText(url);
+      toast.success(t("nodemgt.copied"));
+    } catch {
+      toast.error(t("nodemgt.copy_failed"));
+    }
   };
 
   const retryCert = async (row: any, testCA = false) => {
@@ -2971,7 +3000,6 @@ export default function PlusAdminPage() {
                   label={t("nodemgt.sub_public_host")}
                   value={subCfg.sub_public_host}
                   onChange={(value) => setSubCfg((current) => ({ ...current, sub_public_host: value }))}
-                  placeholder="203.0.113.9"
                   helper={t("nodemgt.sub_public_host_help")}
                 />
                 <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
@@ -3370,7 +3398,7 @@ export default function PlusAdminPage() {
                 },
                 {
                   key: "actions",
-                  width: "15%",
+                  width: "12%",
                   label: t("nodemgt.col_actions"),
                   render: (row) => (
                     <RowActions>
@@ -3378,11 +3406,21 @@ export default function PlusAdminPage() {
                         <Pencil size={16} />
                       </IconButton>
                       <DeleteButton onClick={() => void removeRow("admin:nodemgt.user.delete", row.id)} />
-                      <Button size="small" color={row.status === "disabled" ? "primary" : "warning"} onClick={() => void setStatus(row.id, row.status === "disabled" ? "active" : "disabled")}>
-                        {row.status === "disabled" ? t("nodemgt.enable") : t("nodemgt.disable")}
-                      </Button>
-                      <Button size="small" onClick={() => void renew(row.id)}>{t("nodemgt.renew")}</Button>
-                      <Button size="small" onClick={() => void previewSub(row.id)}>{t("nodemgt.preview")}</Button>
+                      <IconButton
+                        size="small"
+                        color={row.status === "disabled" ? "primary" : "warning"}
+                        aria-label={row.status === "disabled" ? t("nodemgt.enable") : t("nodemgt.disable")}
+                        title={row.status === "disabled" ? t("nodemgt.enable") : t("nodemgt.disable")}
+                        onClick={() => void setStatus(row.id, row.status === "disabled" ? "active" : "disabled")}
+                      >
+                        {row.status === "disabled" ? <Play size={16} /> : <Ban size={16} />}
+                      </IconButton>
+                      <IconButton size="small" aria-label={t("nodemgt.renew")} title={t("nodemgt.renew")} onClick={() => void renew(row.id)}>
+                        <RotateCw size={16} />
+                      </IconButton>
+                      <IconButton size="small" aria-label={t("nodemgt.preview")} title={t("nodemgt.preview")} onClick={() => void previewSub(row.id)}>
+                        <QrCode size={16} />
+                      </IconButton>
                     </RowActions>
                   ),
                 },
@@ -3500,13 +3538,15 @@ export default function PlusAdminPage() {
                 {
                   key: "actions",
                   label: t("nodemgt.col_actions"),
-                  width: "18%",
+                  width: "12%",
                   render: (row) => (
                     <RowActions>
-                      <IconButton size="small" aria-label={t("nodemgt.copy_link")} onClick={() => void copySubURL(row)}>
+                      <IconButton size="small" aria-label={t("nodemgt.copy_link")} title={t("nodemgt.copy_link")} onClick={() => void copySubURL(row)}>
                         <Copy size={16} />
                       </IconButton>
-                      <Button size="small" onClick={() => void previewSub(row.id)}>{t("nodemgt.preview")}</Button>
+                      <IconButton size="small" aria-label={t("nodemgt.preview")} title={t("nodemgt.preview")} onClick={() => void previewSub(row.id)}>
+                        <QrCode size={16} />
+                      </IconButton>
                       <IconButton size="small" aria-label={t("nodemgt.edit")} onClick={() => openEdit("subscription", row)}>
                         <Pencil size={16} />
                       </IconButton>
@@ -3679,7 +3719,7 @@ export default function PlusAdminPage() {
                         security,
                         flow: defaultInboundFlow(value, transport, security, core),
                         cert_id: security === "tls" ? sheet.form.cert_id : "",
-                        reality_dest: security === "reality" ? sheet.form.reality_dest || "www.microsoft.com:443" : "",
+                        reality_dest: security === "reality" ? sheet.form.reality_dest || DEFAULT_REALITY_DEST : "",
                         tcp_header: value === "shadowsocks" || value === "http" ? "none" : sheet.form.tcp_header,
                         ss_method: value === "shadowsocks" ? sheet.form.ss_method || DEFAULT_SS_METHOD : sheet.form.ss_method,
                         accounts: value === "http" ? accountsFormValue(sheet.form.accounts, "http") : sheet.form.accounts,
@@ -3847,8 +3887,8 @@ export default function PlusAdminPage() {
                   transport: value === "reality" ? "tcp" : sheet.form.transport,
                   flow: defaultInboundFlow(sheet.form.protocol, value === "reality" ? "tcp" : sheet.form.transport, value, sheet.form.core),
                   cert_id: value === "tls" ? sheet.form.cert_id : "",
-                  reality_dest: value === "reality" ? sheet.form.reality_dest || "www.microsoft.com:443" : "",
-                  reality_server_names: value === "reality" ? sheet.form.reality_server_names || destHost(sheet.form.reality_dest || "www.microsoft.com:443") : "",
+                  reality_dest: value === "reality" ? sheet.form.reality_dest || DEFAULT_REALITY_DEST : "",
+                  reality_server_names: value === "reality" ? sheet.form.reality_server_names || destHost(sheet.form.reality_dest || DEFAULT_REALITY_DEST) : "",
                   reality_short_id:
                     value === "reality" ? sheet.form.reality_short_id || randomRealityShortID() : "",
                   fingerprint: value === "reality" || value === "tls" ? sheet.form.fingerprint || DEFAULT_FINGERPRINT : "",
@@ -3917,7 +3957,7 @@ export default function PlusAdminPage() {
                     label={t("nodemgt.reality_dest_custom")}
                     value={sheet.form.reality_dest}
                     onChange={(value) => setForm({ reality_dest: value, reality_server_names: destHost(value) })}
-                    placeholder="www.microsoft.com:443"
+                    placeholder={DEFAULT_REALITY_DEST}
                   />
                 ) : null}
                 <TwoCol>
@@ -4419,14 +4459,16 @@ export default function PlusAdminPage() {
             ) : null}
             {sheetTab === "match" ? (
               <>
-            <Field label={t("nodemgt.col_domain")} value={sheet.form.domain} onChange={(value) => setForm({ domain: value })} helper={t("nodemgt.route_domain_help")} placeholder="geosite:cn, geosite:geolocation-!cn" />
-            <Field label={t("nodemgt.col_ip")} value={sheet.form.ip} onChange={(value) => setForm({ ip: value })} helper={t("nodemgt.route_ip_help")} placeholder="geoip:private, geoip:cn" />
+            <Typography color="text.secondary" sx={{ fontSize: 13 }}>{t("nodemgt.route_conditions_help")}</Typography>
+            <Field label={t("nodemgt.col_domain")} value={sheet.form.domain} onChange={(value) => setForm({ domain: value })} helper={t("nodemgt.route_domain_help")} placeholder="geosite:cn" />
+            <Field label={t("nodemgt.col_ip")} value={sheet.form.ip} onChange={(value) => setForm({ ip: value })} helper={t("nodemgt.route_ip_help")} placeholder="geoip:cn" />
             <MultiSelectField
               label={t("nodemgt.route_protocol")}
               value={sheet.form.protocol ? sheet.form.protocol.split(",").filter(Boolean) : []}
               onChange={(value) => setForm({ protocol: value.join(",") })}
               options={ROUTE_PROTOCOLS.map((value) => ({ value, label: value }))}
               helper={t("nodemgt.route_protocol_help")}
+              emptyLabel={t("nodemgt.route_any_protocol")}
             />
             <TwoCol>
               <Field label={t("nodemgt.route_port")} value={sheet.form.port} onChange={(value) => setForm({ port: value })} helper={t("nodemgt.route_port_help")} placeholder="80,443" />
@@ -4463,8 +4505,10 @@ export default function PlusAdminPage() {
           <SettingsSheetActions
             onCancel={() => setSecret("")}
             onConfirm={() => {
-              void navigator.clipboard.writeText(secret);
-              toast.success(t("nodemgt.copied"));
+              void writeClipboardText(secret).then(
+                () => toast.success(t("nodemgt.copied")),
+                () => toast.error(t("nodemgt.copy_failed")),
+              );
             }}
             cancelLabel={t("common.close")}
             confirmLabel={t("nodemgt.copy_link")}
@@ -4487,9 +4531,9 @@ export default function PlusAdminPage() {
               if (!preview) return;
               const text = previewCopyText(preview);
               if (!text) return;
-              void navigator.clipboard.writeText(text).then(
+              void writeClipboardText(text).then(
                 () => toast.success(t("nodemgt.copied")),
-                () => toast.error(t("nodemgt.empty")),
+                () => toast.error(t("nodemgt.copy_failed")),
               );
             }}
             cancelLabel={t("common.close")}
@@ -4624,7 +4668,7 @@ function columnClassName(column: RecordColumn) {
 function columnMinWidth(column: RecordColumn) {
   switch (column.key) {
     case "actions":
-      return 120;
+      return 152;
     case "delivery":
       return 80;
     case "enabled":

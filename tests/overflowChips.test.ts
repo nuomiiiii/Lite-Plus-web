@@ -40,5 +40,4 @@ test("nodemgt record table fills the page without a min-width scrollbar", () => 
   assert.match(source, /flexWrap: "nowrap"/);
   assert.match(source, /maxWidth: "100%"/);
   assert.match(source, /visibleChipCountFromRects/);
-  assert.match(source, /width: "22%"/);
 });
