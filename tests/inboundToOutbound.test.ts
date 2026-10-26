@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { displayExpiryInput, inboundShareHost, inboundSharePort, moveAdjacentIDs, nodemgtErrorMessage, nodemgtRpcErrorKey, nodemgtWarningMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, uuidForInbound } from "../src/pages/admin/nodemgt/inboundToOutbound.ts";
+import { displayExpiryInput, inboundShareHost, inboundSharePort, moveAdjacentIDs, nodemgtErrorMessage, nodemgtRpcErrorKey, nodemgtWarningMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, ss2022Key, ss2022SharePassword, uuidForInbound } from "../src/pages/admin/nodemgt/inboundToOutbound.ts";
 
 test("uses node IP, listen address, or custom share host", () => {
   assert.equal(inboundShareHost({ share_strategy: "node" }, { ipv4: "203.0.113.9" }), "203.0.113.9");
@@ -86,6 +86,35 @@ test("outbound import copies uuid only from users granted on that inbound", () =
   assert.equal(uuidForInbound(inbound, [other, granted]), granted.uuid);
   assert.equal(uuidForInbound(inbound, [other]), "");
   assert.equal(uuidForInbound(inbound, [{ ...granted, status: "disabled" }]), "");
+});
+
+test("ss outbound password uses string secret or combined 2022 PSK", async () => {
+  const granted = {
+    id: "u1",
+    status: "active",
+    inbound_ids: ["ss-1"],
+    uuid: "11111111-1111-1111-1111-111111111111",
+    credentials: [{ secret: "secret" }],
+  };
+  const aead = await outboundPasswordFromInbound(
+    { id: "ss-1", protocol: "shadowsocks", ss_method: "aes-128-gcm" },
+    [granted],
+  );
+  assert.equal(aead, "secret");
+  const method = "2022-blake3-aes-128-gcm";
+  const server = "AAAAAAAAAAAAAAAAAAAAAA==";
+  const want = await ss2022SharePassword(server, "secret", "ss-1", method);
+  const got = await outboundPasswordFromInbound(
+    { id: "ss-1", protocol: "shadowsocks", ss_method: method, ss_password: server },
+    [granted],
+  );
+  assert.equal(got, want);
+  assert.match(got, /^AAAAAAAAAAAAAAAAAAAAAA==:/);
+  assert.equal(await ss2022Key(server, method), server);
+  assert.equal(
+    await outboundPasswordFromInbound({ id: "ss-1", protocol: "shadowsocks", ss_method: method, ss_password: server }, []),
+    "",
+  );
 });
 
 test("expiry text uses yyyy/mm/dd and round-trips to datetime-local", () => {

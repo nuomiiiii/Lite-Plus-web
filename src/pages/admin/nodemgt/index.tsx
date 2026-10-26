@@ -74,7 +74,7 @@ import {
 import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 import { useRPC2Call } from "@/contexts/RPC2Context";
 import { toast } from "sonner";
-import { displayExpiryInput, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, uuidForInbound } from "./inboundToOutbound";
+import { displayExpiryInput, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, uuidForInbound } from "./inboundToOutbound";
 import { parseShareLink } from "./shareLink";
 import {
   emptyNodemgtTemplates,
@@ -276,23 +276,13 @@ function settingOn(value: unknown) {
 
 function subCfgFromSettings(settingRow?: Record<string, any> | null) {
   const reuse = settingOn(settingRow?.sub_reuse_https);
-  const domain = str(settingRow?.sub_domain, "") || firstShareDomain(settingRow?.https_domains);
   return {
     sub_listen_port: str(settingRow?.sub_listen_port, ""),
     sub_public_port: Number(settingRow?.sub_public_port || 0) > 0 ? str(settingRow?.sub_public_port) : "",
     sub_path: str(settingRow?.sub_path, ""),
-    sub_public_host: reuse && domain ? domain : str(settingRow?.sub_public_host, ""),
+    sub_public_host: str(settingRow?.sub_public_host, ""),
     sub_reuse_https: reuse,
   };
-}
-
-function firstShareDomain(value: unknown) {
-  const names = Array.isArray(value) ? value.map((item) => str(item).trim()).filter(Boolean) : [];
-  return (
-    names.find((name) => !name.startsWith("*.") && name.toLowerCase() !== "localhost") ||
-    names.find((name) => name.startsWith("*."))?.replace(/^\*\./, "") ||
-    ""
-  );
 }
 
 function defaultCore(protocol: string) {
@@ -2392,21 +2382,23 @@ export default function PlusAdminPage() {
     );
     const httpAcct = parseProxyAccounts(inbound?.accounts)[0];
     const httpUser = String(httpAcct?.user || granted?.username || uuid || sheet?.form.username || "");
-    setForm({
-      ...fields,
-      source_inbound_id: inboundId,
-      name: outboundTagFromInbound(inbound, sheet?.form.name),
-      uuid,
-      username: fields.protocol === "http" || fields.protocol === "socks" ? httpUser : sheet?.form.username || "",
-      password: httpAcct?.pass || uuid || sheet?.form.password || "",
-      flow: fields.flow || sheet?.form.flow || "",
+    void outboundPasswordFromInbound(inbound, users).then((ssPassword) => {
+      setForm({
+        ...fields,
+        source_inbound_id: inboundId,
+        name: outboundTagFromInbound(inbound, sheet?.form.name),
+        uuid: fields.protocol === "shadowsocks" ? uuidForInbound(inbound, users) : uuid,
+        username: fields.protocol === "http" || fields.protocol === "socks" ? httpUser : sheet?.form.username || "",
+        password: fields.protocol === "shadowsocks" ? ssPassword : httpAcct?.pass || uuid || sheet?.form.password || "",
+        flow: fields.flow || sheet?.form.flow || "",
+      });
+      setImportLink("");
+      if (!fields.address) {
+        toast.error(t("nodemgt.outbound_from_inbound_no_address"));
+        return;
+      }
+      toast.success(t("nodemgt.outbound_from_inbound_ok"));
     });
-    setImportLink("");
-    if (!fields.address) {
-      toast.error(t("nodemgt.outbound_from_inbound_no_address"));
-      return;
-    }
-    toast.success(t("nodemgt.outbound_from_inbound_ok"));
   };
 
   const openCreate = (kind: SheetKind) => {
@@ -2480,8 +2472,6 @@ export default function PlusAdminPage() {
     }
   };
 
-  const certShareDomain = firstShareDomain(settings.https_domains) || str(settings.sub_domain);
-
   const saveSubSettings = async (patch?: Partial<typeof subCfg>) => {
     const nextCfg = { ...subCfg, ...patch };
     const reuse = Boolean(nextCfg.sub_reuse_https);
@@ -2489,13 +2479,12 @@ export default function PlusAdminPage() {
       toast.error(t("nodemgt.sub_reuse_https_missing"));
       throw new Error("missing https");
     }
-    const domain = reuse ? certShareDomain : "";
     try {
       const next = await call("admin:nodemgt.settings.set", {
         sub_listen_port: Number(nextCfg.sub_listen_port || 0),
         sub_public_port: Number(nextCfg.sub_public_port || 0),
         sub_path: nextCfg.sub_path,
-        sub_public_host: domain || nextCfg.sub_public_host,
+        sub_public_host: nextCfg.sub_public_host,
         sub_reuse_https: reuse,
       });
       setSettings(next);
@@ -2695,8 +2684,7 @@ export default function PlusAdminPage() {
     const path = `${pathBase.endsWith("/") ? pathBase : `${pathBase}/`}${token}`;
     const tls = settingOn(settings.sub_reuse_https) || Boolean(subCfg.sub_reuse_https);
     const publicHost = str(settings.sub_public_host, subCfg.sub_public_host);
-    const domain = tls ? certShareDomain : "";
-    const host = (tls ? domain || publicHost : publicHost).replace(/\/$/, "");
+    const host = publicHost.replace(/\/$/, "");
     const listenPort = Number(settings.sub_listen_port || subCfg.sub_listen_port || 0);
     const proxyPort = Number(settings.sub_public_port || subCfg.sub_public_port || 0);
     const port = proxyPort > 0 ? proxyPort : listenPort;
@@ -2981,9 +2969,9 @@ export default function PlusAdminPage() {
                 <ReadyField
                   ready={!loading || Boolean(subCfg.sub_public_host || subCfg.sub_path)}
                   label={t("nodemgt.sub_public_host")}
-                  value={subCfg.sub_reuse_https && certShareDomain ? certShareDomain : subCfg.sub_public_host}
+                  value={subCfg.sub_public_host}
                   onChange={(value) => setSubCfg((current) => ({ ...current, sub_public_host: value }))}
-                  placeholder={subCfg.sub_reuse_https ? certShareDomain || "sub.example.com" : "203.0.113.9"}
+                  placeholder="203.0.113.9"
                   helper={t("nodemgt.sub_public_host_help")}
                 />
                 <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
@@ -3000,7 +2988,7 @@ export default function PlusAdminPage() {
               onChange={async (next) => {
                 await saveSubSettings({
                   sub_reuse_https: next,
-                  sub_public_host: next ? certShareDomain || subCfg.sub_public_host : subCfg.sub_public_host,
+                  sub_public_host: subCfg.sub_public_host,
                 });
               }}
             />

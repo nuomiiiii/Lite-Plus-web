@@ -135,6 +135,79 @@ export function uuidForInbound(inbound: any, users: any[] = []): string {
   return granted ? userUUID(granted) : "";
 }
 
+function userSecret(user: any): string {
+  const creds = Array.isArray(user?.credentials) ? user.credentials : [];
+  for (const cred of creds) {
+    const secret = String(cred?.secret || cred?.SecretMaterial || "").trim();
+    if (secret) return secret;
+  }
+  return userUUID(user);
+}
+
+function grantedUserForInbound(inbound: any, users: any[] = []): any | null {
+  const inboundId = String(inbound?.id || "").trim();
+  if (!inboundId) return null;
+  return (
+    (users || []).find(
+      (user) => user && user.status !== "disabled" && userInboundIDs(user).includes(inboundId) && userSecret(user),
+    ) || null
+  );
+}
+
+export function isSS2022(method: string) {
+  return String(method || "").trim().toLowerCase().startsWith("2022-");
+}
+
+function ss2022KeyBytes(method: string) {
+  return String(method || "").toLowerCase().includes("256") ? 32 : 16;
+}
+
+function decodeStdBase64(raw: string): Uint8Array | null {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  try {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function bytesToStdBase64(bytes: Uint8Array) {
+  let bin = "";
+  for (const value of bytes) bin += String.fromCharCode(value);
+  return btoa(bin);
+}
+
+export async function ss2022Key(secret: string, method: string) {
+  const trimmed = String(secret || "").trim();
+  const n = ss2022KeyBytes(method);
+  const raw = decodeStdBase64(trimmed);
+  if (raw && raw.length === n) return trimmed;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(trimmed)));
+  return bytesToStdBase64(digest.subarray(0, n));
+}
+
+export async function ss2022SharePassword(serverKey: string, userSecret: string, inboundID: string, method: string) {
+  const server = String(serverKey || "").trim()
+    ? await ss2022Key(serverKey, method)
+    : await ss2022Key(`ss-server:${String(inboundID || "").trim()}`, method);
+  return `${server}:${await ss2022Key(userSecret, method)}`;
+}
+
+export async function outboundPasswordFromInbound(inbound: any, users: any[] = []) {
+  const protocol = String(inbound?.protocol || "");
+  const granted = grantedUserForInbound(inbound, users);
+  const secret = granted ? userSecret(granted) : "";
+  if (protocol !== "shadowsocks") return secret;
+  if (!secret) return "";
+  const method = String(inbound?.ss_method || "2022-blake3-aes-128-gcm");
+  if (!isSS2022(method)) return secret;
+  return ss2022SharePassword(String(inbound?.ss_password || ""), secret, String(inbound?.id || ""), method);
+}
+
 export function displayExpiryInput(value: string) {
   return String(value || "")
     .trim()

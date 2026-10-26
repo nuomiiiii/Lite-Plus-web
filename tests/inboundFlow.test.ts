@@ -26,6 +26,14 @@ test("choosing reality fills a short id instead of leaving the field blank", () 
 
 test("new outbound copies uuid from the inbound's granted user", () => {
   assert.match(source, /const uuid = uuidForInbound\(inbound, users\) \|\| sheet\?\.form\.uuid \|\| ""/);
+  assert.match(source, /outboundPasswordFromInbound\(inbound, users\)/);
+  assert.match(source, /fields\.protocol === "shadowsocks" \? ssPassword/);
+});
+
+test("reuse built-in HTTPS does not copy certificate domain into public host", () => {
+  assert.doesNotMatch(source, /certShareDomain/);
+  assert.doesNotMatch(source, /reuse && domain \? domain/);
+  assert.match(source, /sub_public_host: nextCfg\.sub_public_host/);
 });
 
 test("new user save uses upsert secret instead of a second credential issue", () => {

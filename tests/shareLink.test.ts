@@ -39,6 +39,14 @@ test("parses vmess and shadowsocks links", () => {
   assert.equal(ss?.dest_port, "8388");
   assert.equal(ss?.ss_method, "aes-128-gcm");
   assert.equal(ss?.password, "secret");
+
+  const ss2022 = parseShareLink(
+    "ss://2022-blake3-aes-128-gcm:AAAAAAAAAAAAAAAAAAAAAA==%3AZy%2BxWvU%2FtSrQpOnMlKjIhg==@ss.example.com:8388#US_SS2022",
+  );
+  assert.equal(ss2022?.protocol, "shadowsocks");
+  assert.equal(ss2022?.ss_method, "2022-blake3-aes-128-gcm");
+  assert.equal(ss2022?.password, "AAAAAAAAAAAAAAAAAAAAAA==:Zy+xWvU/tSrQpOnMlKjIhg==");
+  assert.equal(ss2022?.address, "ss.example.com");
 });
 
 test("parses HTTP proxy share links", () => {
