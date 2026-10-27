@@ -29,6 +29,17 @@ test("choosing reality fills a short id instead of leaving the field blank", () 
   assert.match(source, /value === "reality" \? sheet\.form\.reality_short_id \|\| randomRealityShortID\(\) : ""/);
 });
 
+test("choosing reality overwrites leftover tls/hy2 sni with the dest host", () => {
+  assert.match(source, /sni: form\.security === "reality" \? shareSNI\(form, "reality"\) : form\.sni/);
+  assert.match(source, /sni: destHost\(value\)/);
+});
+
+test("disabled routes outbounds and users still follow the node apply-config chip", () => {
+  assert.doesNotMatch(source, /function rowPushedToNode/);
+  assert.doesNotMatch(source, /if \(!rowPushedToNode\(row\)\) return "not_started"/);
+  assert.match(source, /function inboundDeliveryOf\(row\?: any, cmd\?: any\) \{\s*const status = deliveryStatusOf\(cmd\);/);
+});
+
 test("new outbound copies uuid from the inbound's granted user", () => {
   assert.match(source, /const uuid = uuidForInbound\(inbound, users\) \|\| sheet\?\.form\.uuid \|\| ""/);
   assert.match(source, /outboundPasswordFromInbound\(inbound, users\)/);
@@ -56,6 +67,14 @@ test("overview edits per-node outbound dial stack for both cores", () => {
   assert.match(source, /const DIAL_STACKS = \["dual", "ipv4", "ipv6", "prefer_ipv4", "prefer_ipv6"\] as const;/);
   assert.match(source, /openEdit\("node", row\)/);
   assert.match(source, /applyXrayDialStack|dial_stack/);
+});
+
+test("toggling outbound route or user keeps the row index instead of appending", () => {
+  assert.match(source, /const idx = rows\.findIndex\(\(item\) => str\(item\?\.id\) === id\)/);
+  assert.match(source, /created_at: prev\.created_at \|\| row\.created_at/);
+  assert.doesNotMatch(source, /\[\.\.\.rows\.filter\(\(item\) => str\(item\?\.id\) !== id\), row\]/);
+  assert.match(source, /visibleOutbounds = outbounds\.filter[\s\S]*?\.sort\(byCreatedAt\)/);
+  assert.match(source, /visibleUsers = users\.filter[\s\S]*?\.sort\(byCreatedAt\)/);
 });
 
 test("save and delete patch the list before reload so a fetch failure cannot hide the change", () => {

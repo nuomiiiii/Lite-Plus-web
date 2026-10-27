@@ -78,6 +78,30 @@ test("firewall detail scans host rules on first open", () => {
   assert.ok(showAt >= 0 && scanAt > showAt, "first paint must not wait for the host scan");
 });
 
+test("firewall list identity matches the node list", () => {
+  const identity = source.slice(source.indexOf("function FirewallNodeIdentity"), source.indexOf("function FirewallNodeAddresses"));
+  assert.match(identity, /admin-node-country-flag/);
+  assert.match(identity, /text-\[15px\] font-semibold leading-6/);
+  assert.match(identity, /text-\[13\.5px\]/);
+  assert.match(identity, /h-\[18px\]/);
+  assert.match(identity, /NODE_ONLINE/);
+  assert.doesNotMatch(identity, /remote-exec-node-identity/);
+  assert.doesNotMatch(identity, /remote-exec-node-flag/);
+  const addresses = source.slice(source.indexOf("function FirewallNodeAddresses"));
+  assert.match(addresses, /text-sm leading-\[1\.125rem\]/);
+  assert.match(addresses, /tabular-nums/);
+  assert.doesNotMatch(addresses, /remote-exec-node-address/);
+});
+
+test("firewall list only manage opens detail", () => {
+  const picker = source.slice(source.indexOf("function FirewallNodePicker"), source.indexOf("function FirewallNodeIdentity"));
+  assert.match(picker, /t\("common.manage"\)/);
+  assert.doesNotMatch(picker, /className="remote-exec-node-row"/);
+  const beforeButton = picker.slice(picker.indexOf("<TableRow"), picker.indexOf("<MuiButton"));
+  assert.doesNotMatch(beforeButton, /onClick=\{\(\) => onSelect\(node\)\}/);
+  assert.match(picker.slice(picker.indexOf("<MuiButton")), /onClick=\{\(\) => onSelect\(node\)\}/);
+});
+
 test("firewall list prefetches node flags before the table paints", () => {
   assert.match(source, /prefetchNodeFlags\(nodeDetail\)/);
   assert.match(source, /useLayoutEffect/);
@@ -124,6 +148,12 @@ test("firewall create can expand TCP and UDP together", () => {
   assert.match(source, /<MenuItem value="both">TCP\/UDP<\/MenuItem>/);
   assert.match(source, /function protocolsOf/);
   assert.match(source, /protocol === "both"/);
+});
+
+test("firewall edit keeps the rule in place", () => {
+  assert.match(source, /function replaceRulesAt/);
+  assert.match(source, /replaceRulesAt\(rules, existing, expanded\)/);
+  assert.doesNotMatch(source, /\[\.\.\.rules\.filter\(\(rule\) => rule\.id !== existing\.id\), \.\.\.expanded\]/);
 });
 
 test("firewall save and adopt toasts do not treat in-flight apply as failure", () => {

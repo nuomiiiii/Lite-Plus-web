@@ -1041,7 +1041,7 @@
     "enabled": "启用",
     "errors": {
       "import": "无法导入这份规则文件",
-      "port": "请填写端口或端口范围",
+      "port": "请填写端口、端口范围或 *",
       "ssh_port": "请填写 1 到 65535 的端口"
     },
     "export": "导出",
@@ -1068,7 +1068,7 @@
     "ssh_port_confirm_title": "修改 SSH 监听端口？",
     "stack_unsupported": "本机暂不支持 {{stack}}",
     "sync_host": "同步主机规则",
-    "sync_host_help": "先扫描、不改机器。可接管的简单 INPUT 可勾选收进 Plus；复杂链只展示。",
+    "sync_host_help": "先扫描、不改机器。可接管的简单入站规则可勾选收进 Plus；复杂链只展示。",
     "tab_v4": "IPv4",
     "tab_v6": "IPv6",
     "title": "防火墙",

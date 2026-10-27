@@ -61,6 +61,19 @@ export function inboundShareHost(
   return host;
 }
 
+export function shareSNI(inbound: any, security = String(inbound?.security || "").trim()) {
+  if (security === "reality") {
+    const fromNames = String(inbound?.reality_server_names || "")
+      .split(",")
+      .map((part) => part.trim())
+      .find(Boolean);
+    if (fromNames) return fromNames;
+    const fromDest = String(inbound?.reality_dest || "").split(":")[0].trim();
+    if (fromDest) return fromDest;
+  }
+  return String(inbound?.sni || inbound?.tls_domain || "").trim();
+}
+
 export function inboundSharePort(inbound: any) {
   const extra = Number(inbound?.public_port || 0);
   if (extra > 0) return String(extra);
@@ -78,10 +91,7 @@ export function outboundFieldsFromInbound(
   const transport = String(inbound?.transport || "tcp");
   const address = inboundShareHost(inbound, node, cert);
   const dest_port = inboundSharePort(inbound);
-  let sni = String(inbound?.sni || "").trim();
-  if (!sni && security === "reality") {
-    sni = String(inbound?.reality_dest || "").split(":")[0] || String(inbound?.reality_server_names || "").split(",")[0] || "";
-  }
+  const sni = shareSNI(inbound, security);
   const ws = transport === "ws" || transport === "httpupgrade";
   return {
     protocol,

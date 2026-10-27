@@ -77,6 +77,7 @@ import {
 } from "@/utils/remoteSession";
 import { createRandomId } from "@/utils/randomId";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { NODE_OFFLINE, NODE_ONLINE } from "@/theme/brand";
 
 type FirewallProtocol = "tcp" | "udp" | "both";
 
@@ -183,6 +184,13 @@ function isKeepRule(rule: { origin?: string }) {
 
 function persistableRules(rules: FirewallRule[] | undefined) {
   return (rules || []).filter((rule) => !isKeepRule(rule));
+}
+
+function replaceRulesAt(rules: FirewallRule[], existing: FirewallRule | undefined, expanded: FirewallRule[]) {
+  if (!existing) return [...rules, ...expanded];
+  const idx = rules.findIndex((rule) => rule.id === existing.id);
+  if (idx < 0) return [...rules, ...expanded];
+  return [...rules.slice(0, idx), ...expanded, ...rules.slice(idx + 1)];
 }
 
 function keepOmitKey(rule: { comment?: string }) {
@@ -514,9 +522,7 @@ function FirewallContent() {
       inbound_id: existing?.inbound_id,
       host_key: existing?.host_key,
     } satisfies FirewallRule));
-    const nextRules = existing
-      ? [...rules.filter((rule) => rule.id !== existing.id), ...expanded]
-      : [...rules, ...expanded];
+    const nextRules = replaceRulesAt(rules, existing, expanded);
     await saveIntent({ ...view.intent, rules: nextRules }, password, otp, usePasskey);
     setEditing(null);
   };
@@ -1490,8 +1496,6 @@ function FirewallNodePicker({
               return (
                 <div
                   key={node.uuid}
-                  className="remote-exec-node-row"
-                  onClick={() => onSelect(node)}
                   onPointerEnter={() => onPrefetch?.(node.uuid)}
                   onFocus={() => onPrefetch?.(node.uuid)}
                 >
@@ -1540,19 +1544,18 @@ function FirewallNodePicker({
                   return (
                     <TableRow
                       key={node.uuid}
-                      className="remote-exec-node-row [&>td]:align-middle [&>td]:py-1.5"
-                      onClick={() => onSelect(node)}
+                      className="[&>td]:align-middle"
                       onPointerEnter={() => onPrefetch?.(node.uuid)}
                       onFocus={() => onPrefetch?.(node.uuid)}
                     >
-                      <TableCell className="overflow-hidden" data-label={t("admin.nodeTable.name")}>
+                      <TableCell className="admin-node-name-cell overflow-hidden" data-label={t("admin.nodeTable.name")}>
                         <FirewallNodeIdentity node={node} online={online} />
                       </TableCell>
-                      <TableCell data-label={t("terminal.ip_address")}>
+                      <TableCell className="overflow-hidden" data-label={t("terminal.ip_address")}>
                         <FirewallNodeAddresses node={node} />
                       </TableCell>
                       <TableCell className="min-w-0 overflow-hidden" data-label={t("common.group")}>
-                        <span className="admin-cell-clip font-normal text-muted-foreground" title={node.group || ""}>
+                        <span className="admin-cell-clip text-sm font-normal text-muted-foreground" title={node.group || ""}>
                           {node.group || "--"}
                         </span>
                       </TableCell>
@@ -1562,7 +1565,7 @@ function FirewallNodePicker({
                             <CustomTags tags={node.tags || ""} />
                           </div>
                         ) : (
-                          <span className="admin-cell-clip text-muted-foreground">--</span>
+                          <span className="admin-cell-clip text-sm text-muted-foreground">--</span>
                         )}
                       </TableCell>
                       <TableCell className="text-center" data-label={t("common.action")}>
@@ -1570,10 +1573,7 @@ function FirewallNodePicker({
                           size="small"
                           variant="outlined"
                           sx={{ ...ADMIN_LIST_OUTLINE_SX, height: 32, minHeight: 32 }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSelect(node);
-                          }}
+                          onClick={() => onSelect(node)}
                         >
                           {t("common.manage")}
                         </MuiButton>
@@ -1607,22 +1607,31 @@ function FirewallNodeIdentity({
 }) {
   const { t } = useTranslation();
   const flag = node.region_override?.trim() || node.region?.trim() || "UN";
+  const pending = online === null;
+  const statusLabel = online
+    ? t("nodeCard.online", "在线")
+    : t("nodeCard.offline", "离线");
   return (
-    <div className="remote-exec-node-identity">
-      <span className="remote-exec-node-flag">
+    <div className="admin-node-name-select flex w-full min-w-0 items-center gap-2 text-left">
+      <span className="admin-node-country-flag">
         <Flag flag={flag} compact />
       </span>
-      <div className="min-w-0">
-        <strong title={node.name}>{node.name}</strong>
-        <span
-          className={`remote-exec-node-status ${online ? "is-online" : "is-offline"}`}
-          aria-hidden={online === null || undefined}
-          style={online === null ? { visibility: "hidden" } : undefined}
-        >
-          <span aria-hidden="true" />
-          {online ? t("nodeCard.online") : t("nodeCard.offline")}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="block max-w-full truncate text-[15px] font-semibold leading-6" title={node.name}>
+          {node.name}
         </span>
-      </div>
+        <span
+          className="flex h-[18px] items-center gap-1.5 text-[13.5px] text-muted-foreground"
+          aria-hidden={pending || undefined}
+          style={pending ? { visibility: "hidden" } : undefined}
+        >
+          <span
+            className="size-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: online ? NODE_ONLINE : NODE_OFFLINE }}
+          />
+          {statusLabel}
+        </span>
+      </span>
     </div>
   );
 }
@@ -1637,17 +1646,14 @@ function FirewallNodeAddresses({ node }: { node: NodeDetail }) {
     (entry): entry is readonly ["IPv4" | "IPv6", string] => Boolean(entry[1]),
   );
   return (
-    <div className="remote-exec-node-addresses">
+    <div className="flex min-w-0 flex-col justify-center text-sm leading-[1.125rem] text-muted-foreground">
       {addresses.length > 0 ? addresses.map(([type, address]) => (
-        <div
-          key={type}
-          className="remote-exec-node-address"
-          title={address || undefined}
-        >
-          <span>{type}</span>
-          <code>{type === "IPv6" ? compactIPv6(address) : address}</code>
+        <div key={type} className="flex min-w-0 items-center gap-1 overflow-hidden" title={address}>
+          <span className="min-w-0 truncate whitespace-nowrap tabular-nums">
+            {type} {type === "IPv6" ? compactIPv6(address) : address}
+          </span>
         </div>
-      )) : <span className="text-muted-foreground">--</span>}
+      )) : <span className="tabular-nums">--</span>}
     </div>
   );
 }

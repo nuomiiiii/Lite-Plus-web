@@ -71,6 +71,25 @@ test("copies REALITY inbound fields into an outbound", () => {
   assert.equal(got.grpc_service, "");
 });
 
+test("reality outbound sni ignores leftover hy2/tls sni", () => {
+  const got = outboundFieldsFromInbound(
+    {
+      protocol: "vless",
+      security: "reality",
+      sni: "ppfla.8787837.xyz",
+      tls_domain: "ppfla.8787837.xyz",
+      reality_dest: "addons.mozilla.org:443",
+      reality_server_names: "addons.mozilla.org",
+      share_strategy: "other",
+      public_host: "ppfla.8787837.xyz",
+      port: 36325,
+    },
+    { ipv4: "ignored" },
+  );
+  assert.equal(got.sni, "addons.mozilla.org");
+  assert.equal(got.address, "ppfla.8787837.xyz");
+});
+
 test("switching inbound always takes the inbound name as outbound tag", () => {
   assert.equal(outboundTagFromInbound({ name: "US_03" }, ""), "US_03");
   assert.equal(outboundTagFromInbound({ name: "US_03" }, "HK-01-old"), "US_03");

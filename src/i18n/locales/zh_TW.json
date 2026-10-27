@@ -1041,7 +1041,7 @@
     "enabled": "啟用",
     "errors": {
       "import": "無法匯入這份規則檔",
-      "port": "請填寫連接埠或連接埠範圍",
+      "port": "請填寫連接埠、連接埠範圍或 *",
       "ssh_port": "請填寫 1 到 65535 的連接埠"
     },
     "export": "匯出",
@@ -1068,7 +1068,7 @@
     "source_placeholder": "來源 CIDR，空表示任意",
     "stack_unsupported": "本機暫不支援 {{stack}}",
     "sync_host": "同步主機規則",
-    "sync_host_help": "先掃描、不改機器。可接管的簡單 INPUT 可勾選收進 Plus；複雜鏈只展示。",
+    "sync_host_help": "先掃描、不改機器。可接管的簡單入站規則可勾選收進 Plus；複雜鏈只展示。",
     "tab_v4": "IPv4",
     "tab_v6": "IPv6",
     "title": "防火牆",

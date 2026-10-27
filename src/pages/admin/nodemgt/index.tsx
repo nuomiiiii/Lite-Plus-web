@@ -91,7 +91,7 @@ import {
 import { confirmAdminPasskey } from "@/utils/webauthn";
 import { toast } from "sonner";
 import { AppDialogContent, Dialog, Flex } from "@/components/admin/ui";
-import { displayExpiryInput, inboundFirewallUnavailable, inboundNeedsFirewallGrant, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, stripFirewallGrantFields, uuidForInbound } from "./inboundToOutbound";
+import { displayExpiryInput, inboundFirewallUnavailable, inboundNeedsFirewallGrant, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, shareSNI, stripFirewallGrantFields, uuidForInbound } from "./inboundToOutbound";
 import { parseShareLink } from "./shareLink";
 import {
   emptyNodemgtTemplates,
@@ -248,7 +248,16 @@ function asList(data: unknown): any[] {
 function mergeById(rows: any[], row: any) {
   const id = str(row?.id);
   if (!id) return rows;
-  return [...rows.filter((item) => str(item?.id) !== id), row];
+  const idx = rows.findIndex((item) => str(item?.id) === id);
+  if (idx < 0) return [...rows, row];
+  const prev = rows[idx];
+  const next = rows.slice();
+  next[idx] = { ...prev, ...row, created_at: prev.created_at || row.created_at };
+  return next;
+}
+
+function byCreatedAt(a: any, b: any) {
+  return String(a?.created_at || "").localeCompare(String(b?.created_at || "")) || String(a?.id || "").localeCompare(String(b?.id || ""));
 }
 
 function userViewFromUpsert(raw: any) {
@@ -789,7 +798,7 @@ function inboundUpsertBody(form: FormMap) {
     transport: form.transport,
     security: form.security,
     flow: form.flow,
-    sni: form.sni,
+    sni: form.security === "reality" ? shareSNI(form, "reality") : form.sni,
     tls_domain: form.tls_domain,
     alpn: form.alpn,
     cert_id: form.cert_id,
@@ -2398,12 +2407,15 @@ export default function PlusAdminPage() {
     .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
     .slice()
     .sort((a, b) => Number(a.sort_index || 0) - Number(b.sort_index || 0) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
-  const visibleUsers = users.filter((row) => matchSearch(row, ["username", "display_name", "plan_name", "status"]));
+  const visibleUsers = users.filter((row) => matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
   const visiblePlans = plans.filter((row) => matchSearch(row, ["name"]));
   const visibleCerts = certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"]));
   const visibleSubs = subs.filter((row) => matchSearch(row, ["user_id", "format", "token"]));
-  const visibleOutbounds = outbounds.filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "address"]));
-  const visibleRoutes = routes.filter((row) => matchNode(row) && matchSearch(row, ["name", "domain"]));
+  const visibleOutbounds = outbounds.filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
+  const visibleRoutes = routes
+    .filter((row) => matchNode(row) && matchSearch(row, ["name", "domain"]))
+    .slice()
+    .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || byCreatedAt(a, b));
   const visibleAudit = audit.filter((row) => matchSearch(row, ["actor", "action", "target"]));
   const diagRows = Array.isArray(diag.commands) && diag.commands.length ? diag.commands : delivery;
   const diagPending = diagRows.filter((row: any) => {
@@ -2417,9 +2429,9 @@ export default function PlusAdminPage() {
     .map((node) => {
       const cmd = nodeDelivery(node.value);
       const sample =
-        inbounds.find((row) => row.node_uuid === node.value) ||
-        outbounds.find((row) => row.node_uuid === node.value) ||
-        routes.find((row) => row.node_uuid === node.value);
+        inbounds.find((row) => row.node_uuid === node.value && row.enabled !== false) ||
+        outbounds.find((row) => row.node_uuid === node.value && row.enabled !== false) ||
+        routes.find((row) => row.node_uuid === node.value && row.enabled !== false);
       const status = sample ? inboundDeliveryOf(sample, cmd) : deliveryStatusOf(cmd);
       return {
         node_uuid: node.value,
@@ -3517,7 +3529,10 @@ export default function PlusAdminPage() {
                 { key: "node", label: t("nodemgt.col_node"), width: "16%", render: (row) => <CellEllipsis value={nodeName(row.node_uuid)} /> },
                 { key: "protocol", label: t("nodemgt.col_protocol"), width: "12%", render: (row) => t(`nodemgt.outbound_${row.protocol}`, { defaultValue: row.protocol }) },
                 { key: "address", label: t("nodemgt.col_address"), width: "20%", render: (row) => <CellEllipsis value={row.address ? `${row.address}${row.dest_port ? `:${row.dest_port}` : ""}` : "—"} /> },
-                { key: "delivery", label: t("nodemgt.col_delivery"), render: (row) => <DeliveryChip status={nodeDelivery(row.node_uuid)?.status} error={nodeDelivery(row.node_uuid)?.last_error} /> },
+                { key: "delivery", label: t("nodemgt.col_delivery"), render: (row) => {
+                  const cmd = nodeDelivery(row.node_uuid);
+                  return <DeliveryChip status={inboundDeliveryOf(row, cmd)} error={inboundTouched(row, cmd) ? cmd?.last_error : undefined} />;
+                } },
                 { key: "enabled", label: t("nodemgt.col_enabled"), render: (row) => <EnableSwitch checked={row.enabled !== false} onChange={(next) => void toggleRowEnabled("outbound", row, next)} /> },
                 {
                   key: "actions",
@@ -3571,7 +3586,10 @@ export default function PlusAdminPage() {
                   ),
                 },
                 { key: "priority", label: t("nodemgt.col_priority"), width: "6%", fit: true },
-                { key: "delivery", label: t("nodemgt.col_delivery"), width: "11%", fit: true, render: (row) => <DeliveryChip status={nodeDelivery(row.node_uuid)?.status} error={nodeDelivery(row.node_uuid)?.last_error} /> },
+                { key: "delivery", label: t("nodemgt.col_delivery"), width: "11%", fit: true, render: (row) => {
+                  const cmd = nodeDelivery(row.node_uuid);
+                  return <DeliveryChip status={inboundDeliveryOf(row, cmd)} error={inboundTouched(row, cmd) ? cmd?.last_error : undefined} />;
+                } },
                 { key: "enabled", label: t("nodemgt.col_enabled"), width: "8%", fit: true, render: (row) => <EnableSwitch checked={row.enabled !== false} onChange={(next) => void toggleRowEnabled("route", row, next)} /> },
                 {
                   key: "actions",
@@ -3633,7 +3651,10 @@ export default function PlusAdminPage() {
                   },
                 },
                 { key: "status", label: t("nodemgt.col_status"), width: "6%", render: (row) => <StatusChip value={row.status} /> },
-                { key: "delivery", label: t("nodemgt.col_delivery"), width: "6%", render: (row) => <DeliveryChip status={nodeDelivery(row.node_uuid)?.status} error={nodeDelivery(row.node_uuid)?.last_error} /> },
+                { key: "delivery", label: t("nodemgt.col_delivery"), width: "6%", render: (row) => {
+                  const cmd = nodeDelivery(row.node_uuid);
+                  return <DeliveryChip status={inboundDeliveryOf(row, cmd)} error={inboundTouched(row, cmd) ? cmd?.last_error : undefined} />;
+                } },
                 { key: "quota", label: t("nodemgt.col_quota_bytes"), width: "8%", render: (row) => formatQuotaLabel(row.used_bytes || 0, row.quota_bytes || 0, "—") },
                 { key: "rate", label: t("nodemgt.col_rate_limit_bps"), width: "6%", render: (row) => formatMbpsLabel(row.rate_limit_bps || 0, t("nodemgt.unlimited")) },
                 { key: "ends", label: t("nodemgt.col_expires"), width: "10%", render: (row) => formatWhen(row.expires_at || row.assignment_ends_at) },
@@ -4158,13 +4179,17 @@ export default function PlusAdminPage() {
               label={t("nodemgt.col_security")}
               value={sheet.form.security}
               onChange={(value) => {
+                const realityDest = value === "reality" ? sheet.form.reality_dest || DEFAULT_REALITY_DEST : "";
+                const realityNames =
+                  value === "reality" ? sheet.form.reality_server_names || destHost(realityDest) : "";
                 const patch: FormMap = {
                   security: value,
                   transport: value === "reality" ? "tcp" : sheet.form.transport,
                   flow: defaultInboundFlow(sheet.form.protocol, value === "reality" ? "tcp" : sheet.form.transport, value, sheet.form.core),
                   cert_id: value === "tls" ? sheet.form.cert_id : "",
-                  reality_dest: value === "reality" ? sheet.form.reality_dest || DEFAULT_REALITY_DEST : "",
-                  reality_server_names: value === "reality" ? sheet.form.reality_server_names || destHost(sheet.form.reality_dest || DEFAULT_REALITY_DEST) : "",
+                  reality_dest: realityDest,
+                  reality_server_names: realityNames,
+                  sni: value === "reality" ? shareSNI({ ...sheet.form, security: value, reality_dest: realityDest, reality_server_names: realityNames }, "reality") : sheet.form.sni,
                   reality_short_id:
                     value === "reality" ? sheet.form.reality_short_id || randomRealityShortID() : "",
                   fingerprint: value === "reality" || value === "tls" ? sheet.form.fingerprint || DEFAULT_FINGERPRINT : "",
@@ -4220,7 +4245,7 @@ export default function PlusAdminPage() {
                       setForm({ reality_dest: "" });
                       return;
                     }
-                    setForm({ reality_dest: value, reality_server_names: destHost(value) });
+                    setForm({ reality_dest: value, reality_server_names: destHost(value), sni: destHost(value) });
                   }}
                   options={[
                     ...REALITY_DESTS.map((value) => ({ value, label: value })),
@@ -4232,12 +4257,12 @@ export default function PlusAdminPage() {
                   <Field
                     label={t("nodemgt.reality_dest_custom")}
                     value={sheet.form.reality_dest}
-                    onChange={(value) => setForm({ reality_dest: value, reality_server_names: destHost(value) })}
+                    onChange={(value) => setForm({ reality_dest: value, reality_server_names: destHost(value), sni: destHost(value) })}
                     placeholder={DEFAULT_REALITY_DEST}
                   />
                 ) : null}
                 <TwoCol>
-                  <Field label={t("nodemgt.reality_server_names")} value={sheet.form.reality_server_names} onChange={(value) => setForm({ reality_server_names: value })} helper={t("nodemgt.reality_sni_help")} />
+                  <Field label={t("nodemgt.reality_server_names")} value={sheet.form.reality_server_names} onChange={(value) => setForm({ reality_server_names: value, sni: value.split(",")[0].trim() || value })} helper={t("nodemgt.reality_sni_help")} />
                   <Field
                     label={t("nodemgt.reality_short_id")}
                     value={sheet.form.reality_short_id}

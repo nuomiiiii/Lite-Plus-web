@@ -1041,7 +1041,7 @@
     "enabled": "Enabled",
     "errors": {
       "import": "This rule file could not be imported",
-      "port": "Enter a port or port range",
+      "port": "Enter a port, port range, or *",
       "ssh_port": "Enter a port from 1 to 65535"
     },
     "export": "Export",
@@ -1068,7 +1068,7 @@
     "source_placeholder": "Source CIDR; empty means any",
     "stack_unsupported": "This host does not support {{stack}}",
     "sync_host": "Sync host rules",
-    "sync_host_help": "Scan first, without changing the machine. Simple INPUT rules can be adopted; complex chains are view-only.",
+    "sync_host_help": "Scan first, without changing the machine. Simple inbound rules can be adopted; complex chains are view-only.",
     "tab_v4": "IPv4",
     "tab_v6": "IPv6",
     "title": "Firewall",
