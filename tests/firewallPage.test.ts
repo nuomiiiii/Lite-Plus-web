@@ -150,6 +150,14 @@ test("firewall create can expand TCP and UDP together", () => {
   assert.match(source, /protocol === "both"/);
 });
 
+test("firewall create blocks the same protocol port and source", () => {
+  assert.match(source, /function firewallRuleKey/);
+  assert.match(source, /function hasDuplicateFirewallRule/);
+  assert.match(source, /hasDuplicateFirewallRule\(rules, next, existing\?\.id\)/);
+  assert.match(source, /firewall\.errors\.duplicate/);
+  assert.match(source, /firewall rule already exists/);
+});
+
 test("firewall edit keeps the rule in place", () => {
   assert.match(source, /function replaceRulesAt/);
   assert.match(source, /replaceRulesAt\(rules, existing, expanded\)/);

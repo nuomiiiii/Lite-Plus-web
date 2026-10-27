@@ -186,6 +186,27 @@ function persistableRules(rules: FirewallRule[] | undefined) {
   return (rules || []).filter((rule) => !isKeepRule(rule));
 }
 
+function firewallSourceKey(source?: string) {
+  const raw = String(source || "").trim().toLowerCase();
+  if (!raw || raw === "*" || raw === "any" || raw === "0.0.0.0/0" || raw === "::/0") return "";
+  return raw.replace(/\/32$/, "").replace(/\/128$/, "");
+}
+
+function firewallRuleKey(rule: Pick<FirewallRule, "protocol" | "port" | "source" | "stack">) {
+  return `${String(rule.protocol || "").toLowerCase()}|${String(rule.port || "").trim().toLowerCase()}|${firewallSourceKey(rule.source)}|${rule.stack}`;
+}
+
+function hasDuplicateFirewallRule(rules: FirewallRule[], candidate: FirewallRule, ignoreId?: string) {
+  const key = firewallRuleKey(candidate);
+  return persistableRules(rules).some((rule) => rule.id !== ignoreId && firewallRuleKey(rule) === key);
+}
+
+function firewallErrorMessage(err: unknown, t: (key: string, options?: Record<string, unknown>) => string) {
+  const raw = err instanceof Error ? err.message : String(err || "");
+  if (/firewall rule already exists/i.test(raw)) return t("firewall.errors.duplicate");
+  return localizeRemoteError(raw, t) || t("common.error");
+}
+
 function replaceRulesAt(rules: FirewallRule[], existing: FirewallRule | undefined, expanded: FirewallRule[]) {
   if (!existing) return [...rules, ...expanded];
   const idx = rules.findIndex((rule) => rule.id === existing.id);
@@ -442,7 +463,7 @@ function FirewallContent() {
       try {
         await saveIntent(next);
       } catch (err) {
-        toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+        toast.error(firewallErrorMessage(err, t));
       }
       return;
     }
@@ -522,6 +543,10 @@ function FirewallContent() {
       inbound_id: existing?.inbound_id,
       host_key: existing?.host_key,
     } satisfies FirewallRule));
+    if (expanded.some((next) => hasDuplicateFirewallRule(rules, next, existing?.id))) {
+      toast.error(t("firewall.errors.duplicate"));
+      return;
+    }
     const nextRules = replaceRulesAt(rules, existing, expanded);
     await saveIntent({ ...view.intent, rules: nextRules }, password, otp, usePasskey);
     setEditing(null);
@@ -586,12 +611,21 @@ function FirewallContent() {
         origin: "file" as const,
         priority: Number(rule.priority || 100),
       }));
+      const seen = new Set(persistableRules(rules).map(firewallRuleKey));
+      for (const rule of mapped) {
+        const key = firewallRuleKey(rule);
+        if (seen.has(key)) {
+          toast.error(t("firewall.errors.duplicate"));
+          return;
+        }
+        seen.add(key);
+      }
       await queueSave({
         ...view.intent,
         rules: [...rules, ...mapped],
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("firewall.errors.import"));
+      toast.error(firewallErrorMessage(err, t) || t("firewall.errors.import"));
     }
   };
 
@@ -619,7 +653,7 @@ function FirewallContent() {
         toast.success(t("firewall.adopted"));
       }
     } catch (err) {
-      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+      toast.error(firewallErrorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -1069,7 +1103,7 @@ function FirewallContent() {
                 variant="outlined"
                 disabled={busy || selectedHost.length === 0}
                 onClick={() => void adopt(true).catch((err) => {
-                  toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+                  toast.error(firewallErrorMessage(err, t));
                 })}
               >
                 {t("login.passkey")}
@@ -1152,7 +1186,7 @@ function FirewallContent() {
                 variant="outlined"
                 disabled={busy || !pendingSave}
                 onClick={() => pendingSave && void saveIntent(pendingSave, "", "", true).catch((err) => {
-                  toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+                  toast.error(firewallErrorMessage(err, t));
                 })}
               >
                 {t("login.passkey")}
@@ -1162,7 +1196,7 @@ function FirewallContent() {
               variant="contained"
               disabled={busy || !pendingSave || (twoFaEnabled ? !authOtp.trim() : !authPassword.trim())}
               onClick={() => pendingSave && void saveIntent(pendingSave, authPassword, authOtp, false).catch((err) => {
-                toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+                toast.error(firewallErrorMessage(err, t));
               })}
             >
               {t("scheduled_exec.confirm")}
@@ -1225,7 +1259,7 @@ function RuleDialog({
     try {
       await onSave(form, password, otp, usePasskey);
     } catch (err) {
-      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+      toast.error(firewallErrorMessage(err, t));
     } finally {
       setSaving(false);
     }

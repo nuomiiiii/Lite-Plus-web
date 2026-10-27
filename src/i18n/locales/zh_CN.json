@@ -1040,6 +1040,7 @@
     "empty_rules_filtered": "没有匹配的规则。",
     "enabled": "启用",
     "errors": {
+      "duplicate": "已有相同协议、端口和来源的规则，不能重复添加。",
       "import": "无法导入这份规则文件",
       "port": "请填写端口、端口范围或 *",
       "ssh_port": "请填写 1 到 65535 的端口"
@@ -1903,7 +1904,7 @@
     "sub_sheet_access": "入口管理",
     "sub_sheet_list": "订阅信息",
     "sub_sheet_templates": "模板管理",
-    "sub_sort_help": "数字越小，订阅里越靠前。也可以用列表里的上下箭头调整。",
+    "sub_sort_help": "数字越小，订阅里越靠前。0 会排在最前；留空则自动排到最后。也可以用列表里的上下箭头调整。",
     "sub_tls_paths_required": "请同时填写证书路径和私钥路径。",
     "sub_url_help": "复制出去的地址由对外地址、端口（填了反代端口则用反代端口）和路径组成。开了复用内置 HTTPS 后用 HTTPS，主机名仍用对外地址。",
     "tab_audit": "审计",

@@ -1040,6 +1040,7 @@
     "empty_rules_filtered": "沒有符合的規則。",
     "enabled": "啟用",
     "errors": {
+      "duplicate": "已有相同協定、連接埠和來源的規則，不能重複新增。",
       "import": "無法匯入這份規則檔",
       "port": "請填寫連接埠、連接埠範圍或 *",
       "ssh_port": "請填寫 1 到 65535 的連接埠"
@@ -1905,7 +1906,7 @@
     "sub_sheet_access": "入口管理",
     "sub_sheet_list": "訂閱資訊",
     "sub_sheet_templates": "範本管理",
-    "sub_sort_help": "数字越小，訂閱裡越靠前。也可以用列表裡的上下箭头调整。",
+    "sub_sort_help": "數字越小，訂閱裡越靠前。0 會排在最前；留空則自動排到最後。也可以用列表裡的上下箭頭調整。",
     "sub_tls_paths_required": "請同時填寫憑證路徑和私鑰路徑。",
     "sub_url_help": "複製出去的地址由对外地址、端口（填了反代端口則用反代端口）和路徑組成。開了復用內建 HTTPS 後用 HTTPS，主機名仍用对外地址。",
     "tab_audit": "审计",

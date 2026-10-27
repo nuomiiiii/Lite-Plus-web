@@ -528,7 +528,7 @@ function inboundForm(row?: any): FormMap {
     ss_method: str(row?.ss_method, DEFAULT_SS_METHOD),
     accounts: accountsFormValue(row?.accounts, protocol),
     allow_transparent: row?.allow_transparent === true || row?.allow_transparent === "true" ? "true" : "false",
-    sort_index: str(row?.sort_index, "0"),
+    sort_index: row?.id ? str(row?.sort_index) : "",
     share_strategy: inboundShareStrategy(row),
     exclude_from_sub: "false",
     enabled: row?.enabled === false ? "false" : "true",
@@ -784,6 +784,14 @@ function routeForm(row?: any): FormMap {
   };
 }
 
+function inboundSortIndexValue(raw: unknown): number | undefined {
+  const text = String(raw ?? "").trim();
+  if (text === "") return undefined;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
+
 function inboundUpsertBody(form: FormMap) {
   return {
     id: form.id || undefined,
@@ -822,7 +830,7 @@ function inboundUpsertBody(form: FormMap) {
     ss_method: form.ss_method,
     accounts: parseProxyAccounts(form.accounts),
     allow_transparent: form.allow_transparent === "true",
-    sort_index: Number(form.sort_index || 0),
+    sort_index: inboundSortIndexValue(form.sort_index),
     share_strategy: form.share_strategy || "node",
     exclude_from_sub: false,
     enabled: form.enabled !== "false",

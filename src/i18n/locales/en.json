@@ -1040,6 +1040,7 @@
     "empty_rules_filtered": "No matching rules.",
     "enabled": "Enabled",
     "errors": {
+      "duplicate": "A rule with the same protocol, port, and source already exists.",
       "import": "This rule file could not be imported",
       "port": "Enter a port, port range, or *",
       "ssh_port": "Enter a port from 1 to 65535"
@@ -1905,7 +1906,7 @@
     "sub_sheet_access": "Entry management",
     "sub_sheet_list": "Subscriptions",
     "sub_sheet_templates": "Templates",
-    "sub_sort_help": "Lower numbers appear first in the subscription. You can also use the up/down arrows.",
+    "sub_sort_help": "Lower numbers appear first in the subscription. 0 is first; leave empty to append at the end. You can also use the up/down arrows.",
     "sub_tls_paths_required": "Enter both the certificate and private key paths.",
     "sub_url_help": "Copied links use the public host, reverse-proxy port when set (otherwise the listen port), and path. Reuse built-in HTTPS switches them to HTTPS and still uses the public host.",
     "tab_audit": "Audit",

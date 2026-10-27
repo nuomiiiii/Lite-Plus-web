@@ -9,6 +9,13 @@ const source = readFileSync(
   "utf8",
 );
 
+test("inbound sort index 0 is sent instead of treated as empty", () => {
+  assert.match(source, /function inboundSortIndexValue/);
+  assert.match(source, /sort_index: inboundSortIndexValue\(form\.sort_index\)/);
+  assert.doesNotMatch(source, /sort_index: Number\(form\.sort_index \|\| 0\)/);
+  assert.match(source, /sort_index: row\?\.id \? str\(row\?\.sort_index\) : ""/);
+});
+
 test("inbound firewall allow goes through exec grant and availability hints", () => {
   assert.match(source, /inboundNeedsFirewallGrant/);
   assert.match(source, /inboundFirewallUnavailable/);
