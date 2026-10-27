@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { displayExpiryInput, inboundShareHost, inboundSharePort, moveAdjacentIDs, nodemgtErrorMessage, nodemgtRpcErrorKey, nodemgtWarningMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, ss2022Key, ss2022SharePassword, uuidForInbound } from "../src/pages/admin/nodemgt/inboundToOutbound.ts";
+import { displayExpiryInput, inboundFirewallUnavailable, inboundNeedsFirewallGrant, inboundShareHost, inboundSharePort, moveAdjacentIDs, nodemgtErrorMessage, nodemgtRpcErrorKey, nodemgtWarningMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, ss2022Key, ss2022SharePassword, stripFirewallGrantFields, uuidForInbound } from "../src/pages/admin/nodemgt/inboundToOutbound.ts";
 
 test("uses node IP, listen address, or custom share host", () => {
   assert.equal(inboundShareHost({ share_strategy: "node" }, { ipv4: "203.0.113.9" }), "203.0.113.9");
@@ -177,6 +177,9 @@ test("admin RPC errors map to nodemgt i18n keys instead of raw English", () => {
     ["put remote node subscriptions in user extra links instead of proxy-providers", "", "nodemgt.tpl_remote_in_template"],
     ["RPC Error -32603: boom", "", "nodemgt.request_failed"],
     ["admin:nodemgt.inbound.list: RPC Error -32603: timeout", "", "nodemgt.request_failed"],
+    ["RPC Error -32603: 站点未启用远程管理", "inbound", "nodemgt.firewall_site_off"],
+    ["RPC Error -32603: 当前 Agent 不支持防火墙，请升级", "inbound", "nodemgt.firewall_agent_old"],
+    ["RPC Error -32603: 节点未启用远程控制", "inbound", "nodemgt.firewall_remote_off"],
   ];
   for (const [raw, kind, key] of cases) {
     assert.equal(nodemgtRpcErrorKey(raw, kind), key, raw);
@@ -252,4 +255,35 @@ test("subscription arrows swap adjacent inbounds across nodes", () => {
   assert.deepEqual(moveAdjacentIDs(rows, "global", -1), ["global", "us"]);
   assert.equal(moveAdjacentIDs(rows, "us", -1), null);
   assert.equal(moveAdjacentIDs([{ id: "only", sort_index: 1 }], "only", 1), null);
+});
+
+test("inbound firewall grant is required only when rules would change", () => {
+  assert.equal(inboundNeedsFirewallGrant({ firewall_allow: "true", enabled: "true" }, null), true);
+  assert.equal(
+    inboundNeedsFirewallGrant(
+      { firewall_allow: "true", enabled: "true", port: "443", protocol: "vless", stack: "ipv4", transport: "tcp" },
+      { firewall_linked: true, enabled: true, port: 443, protocol: "vless", stack: "ipv4", transport: "tcp" },
+    ),
+    false,
+  );
+  assert.equal(
+    inboundNeedsFirewallGrant(
+      { firewall_allow: "true", enabled: "false", port: "443", protocol: "vless", stack: "ipv4", transport: "tcp" },
+      { firewall_linked: true, enabled: true, port: 443, protocol: "vless", stack: "ipv4", transport: "tcp" },
+    ),
+    true,
+  );
+  assert.equal(inboundNeedsFirewallGrant({ firewall_allow: "false" }, { firewall_linked: true }), true);
+  assert.equal(inboundNeedsFirewallGrant({ firewall_allow: "false" }, { firewall_linked: false }), false);
+  assert.equal(inboundNeedsFirewallGrant({ firewall_allow: "true" }, { firewall_linked: true }, false), false);
+});
+
+test("inbound firewall availability follows site remote and agent capability", () => {
+  assert.equal(inboundFirewallUnavailable({ uuid: "n1", remote_protocol: 2, remote_control_enabled: true, firewall: true, firewall_version: 1 }, false), "site_remote_off");
+  assert.equal(inboundFirewallUnavailable(null, true), "no_node");
+  assert.equal(inboundFirewallUnavailable({ uuid: "n1", remote_protocol: 1, remote_control_enabled: true }, true), "agent_old");
+  assert.equal(inboundFirewallUnavailable({ uuid: "n1", remote_protocol: 2, remote_control_enabled: false, firewall: true, firewall_version: 1 }, true), "remote_off");
+  assert.equal(inboundFirewallUnavailable({ uuid: "n1", remote_protocol: 2, remote_control_enabled: true, firewall: false }, true), "agent_old");
+  assert.equal(inboundFirewallUnavailable({ uuid: "n1", remote_protocol: 2, remote_control_enabled: true, firewall: true, firewall_version: 1 }, true), "");
+  assert.deepEqual(stripFirewallGrantFields({ id: "in-1", next_grant: "x", expires_at: "t" }), { id: "in-1" });
 });

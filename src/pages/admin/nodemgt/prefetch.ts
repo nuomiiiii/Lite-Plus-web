@@ -15,6 +15,7 @@ export type NodemgtSnapshot = {
   subs: any[];
   outbounds: any[];
   routes: any[];
+  nodes: any[];
   audit: any[];
   diag: Record<string, any>;
   settings: Record<string, any>;
@@ -38,6 +39,7 @@ const NODEMGT_REQUESTS: NodemgtRequest[] = [
   { key: "subs", method: "admin:nodemgt.subscription.list" },
   { key: "outbounds", method: "admin:nodemgt.outbound.list" },
   { key: "routes", method: "admin:nodemgt.route.list" },
+  { key: "nodes", method: "admin:nodemgt.node.list" },
   { key: "audit", method: "admin:nodemgt.audit.list", params: { limit: 80 } },
   { key: "diag", method: "admin:nodemgt.diag.status" },
   { key: "settings", method: "admin:nodemgt.settings.get" },
@@ -68,6 +70,7 @@ export function emptyNodemgtSnapshot(): NodemgtSnapshot {
     subs: [],
     outbounds: [],
     routes: [],
+    nodes: [],
     audit: [],
     diag: {},
     settings: {},
@@ -120,6 +123,7 @@ export function nodemgtPrimaryMethods(tab: string): string[] {
         "admin:nodemgt.cert.list",
         "admin:nodemgt.control.status",
         "admin:nodemgt.diag.status",
+        "admin:nodemgt.node.list",
       ];
   }
 }

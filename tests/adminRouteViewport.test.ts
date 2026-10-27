@@ -176,6 +176,23 @@ test("real Router keys do not remount the active route when a pending navigation
   assert.equal(cancelled.views[0].outlet, activeOutlet);
 });
 
+test("firewall list and node detail keep one mounted admin view", () => {
+  const list = getAdminRouteViewKey({
+    pathname: "/admin/remote-management/firewall",
+    search: "",
+    hash: "",
+  });
+  assert.equal(list, "/admin/remote-management/firewall");
+  assert.equal(
+    getAdminRouteViewKey({
+      pathname: "/admin/remote-management/firewall",
+      search: "?uuid=node-1",
+      hash: "",
+    }),
+    list,
+  );
+});
+
 test("query and hash updates keep the current admin route view mounted", () => {
   const base = getAdminRouteViewKey({
     pathname: "/admin/billing",

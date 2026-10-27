@@ -300,7 +300,9 @@ html.admin-node-dnd-dragging {
 .admin-node-country-flag {
   display: inline-flex;
   flex: 0 0 auto;
-  align-self: center;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
   padding: 0;
   border: 0;
   background: transparent !important;
@@ -311,6 +313,11 @@ html.admin-node-dnd-dragging {
   width: 28px !important;
   height: 21px !important;
   background: transparent !important;
+}
+
+.admin-firewall-identity-flag.admin-node-country-flag > span {
+  width: 40px !important;
+  height: 30px !important;
 }
 
 .admin-node-name-cell,

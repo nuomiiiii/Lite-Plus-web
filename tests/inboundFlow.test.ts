@@ -46,6 +46,18 @@ test("new user save uses upsert secret instead of a second credential issue", ()
   assert.doesNotMatch(source, /admin:nodemgt\.credential\.issue/);
 });
 
+test("freedom domain strategy yields to a non-dual node dial stack", () => {
+  assert.match(source, /nodemgt\.domain_strategy_node_help/);
+  assert.match(source, /nodeDialStackOf\(sheet\.form\.node_uuid\) === "dual"/);
+});
+
+test("overview edits per-node outbound dial stack for both cores", () => {
+  assert.match(source, /admin:nodemgt\.node\.upsert/);
+  assert.match(source, /const DIAL_STACKS = \["dual", "ipv4", "ipv6", "prefer_ipv4", "prefer_ipv6"\] as const;/);
+  assert.match(source, /openEdit\("node", row\)/);
+  assert.match(source, /applyXrayDialStack|dial_stack/);
+});
+
 test("save and delete patch the list before reload so a fetch failure cannot hide the change", () => {
   assert.match(source, /patchNodemgtSnapshot/);
   assert.match(source, /userViewFromUpsert/);
@@ -58,6 +70,6 @@ test("save and delete patch the list before reload so a fetch failure cannot hid
 test("delete toasts as soon as the row is gone instead of waiting for the full reload", () => {
   assert.match(
     source,
-    /const removeRow = async \(method: string, id: string\) => \{[\s\S]*?toast\.success\(t\("nodemgt.saved"\)\);[\s\S]*?void load\(\{ force: true, reload: true \}\)/,
+    /const removeRow = async \(method: string, id: string, firewallGrant\?: string\) => \{[\s\S]*?toast\.success\(t\("nodemgt.saved"\)\);[\s\S]*?void load\(\{ force: true, reload: true \}\)/,
   );
 });

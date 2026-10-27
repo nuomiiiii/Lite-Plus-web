@@ -30,6 +30,7 @@ import InsertDriveFileOutlined from "@mui/icons-material/InsertDriveFileOutlined
 import KeyboardReturn from "@mui/icons-material/KeyboardReturn";
 import KeyboardTabIcon from "@mui/icons-material/KeyboardTab";
 import LayersOutlined from "@mui/icons-material/LayersOutlined";
+import LocalFireDepartmentOutlined from "@mui/icons-material/LocalFireDepartmentOutlined";
 import LinkOutlined from "@mui/icons-material/LinkOutlined";
 import NoteAddOutlined from "@mui/icons-material/NoteAddOutlined";
 import RemoveOutlined from "@mui/icons-material/RemoveOutlined";
@@ -162,6 +163,7 @@ export const Send = wrapMuiIcon(SendOutlined);
 export const Server = wrapMuiIcon(DnsOutlined);
 export const Settings = wrapMuiIcon(SettingsOutlined);
 export const Shield = wrapMuiIcon(GppGoodOutlined);
+export const Firewall = wrapMuiIcon(LocalFireDepartmentOutlined);
 export const Shuffle = wrapMuiIcon(ShuffleOutlined);
 export const Settings2 = wrapMuiIcon(Tune);
 export const SlidersHorizontal = wrapMuiIcon(Tune);

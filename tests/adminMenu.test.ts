@@ -130,6 +130,7 @@ test("keeps the admin navigation in the intended groups", () => {
     [
       "/admin/exec",
       "/admin/remote-management/schedules",
+      "/admin/remote-management/firewall",
       "/admin/remote-management/mcp",
       "/admin/settings/xtermjs",
     ],
@@ -137,6 +138,10 @@ test("keeps the admin navigation in the intended groups", () => {
   assert.equal(
     remoteManagement?.children?.some((item) => item.path === "/admin/terminal"),
     false,
+  );
+  assert.equal(
+    remoteManagement?.children?.find((item) => item.path === "/admin/remote-management/firewall")?.icon,
+    "Firewall",
   );
 
   assert.deepEqual(

@@ -259,6 +259,7 @@ test("site remote-management helper treats only true as enabled", () => {
   assert.equal(isRemoteManagementPath("/admin/exec"), true);
   assert.equal(isRemoteManagementPath("/admin/remote-management/schedules"), true);
   assert.equal(isRemoteManagementPath("/admin/remote-management/schedules/task-1"), true);
+  assert.equal(isRemoteManagementPath("/admin/remote-management/firewall"), true);
   assert.equal(isRemoteManagementPath("/admin/settings/xtermjs"), true);
   assert.equal(isRemoteManagementPath("/terminal"), true);
   assert.equal(isRemoteManagementPath("/admin/servers"), false);

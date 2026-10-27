@@ -11,9 +11,11 @@ import CodeOutlined from "@mui/icons-material/CodeOutlined";
 import DashboardOutlined from "@mui/icons-material/DashboardOutlined";
 import DescriptionOutlined from "@mui/icons-material/DescriptionOutlined";
 import DnsOutlined from "@mui/icons-material/DnsOutlined";
+import GppGoodOutlined from "@mui/icons-material/GppGoodOutlined";
 import GroupOutlined from "@mui/icons-material/GroupOutlined";
 import HomeOutlined from "@mui/icons-material/HomeOutlined";
 import HubOutlined from "@mui/icons-material/HubOutlined";
+import LocalFireDepartmentOutlined from "@mui/icons-material/LocalFireDepartmentOutlined";
 import MenuBookOutlined from "@mui/icons-material/MenuBookOutlined";
 import MoreHoriz from "@mui/icons-material/MoreHoriz";
 import NotificationsActiveOutlined from "@mui/icons-material/NotificationsActiveOutlined";
@@ -89,4 +91,6 @@ export const iconMap: Record<string, ReturnType<typeof wrapMuiIcon>> = {
   LayoutDashboard: wrapMuiIcon(DashboardOutlined),
   Payments: wrapMuiIcon(AccountBalanceWalletOutlined),
   Send: wrapMuiIcon(SendOutlined),
+  Shield: wrapMuiIcon(GppGoodOutlined),
+  Firewall: wrapMuiIcon(LocalFireDepartmentOutlined),
 };

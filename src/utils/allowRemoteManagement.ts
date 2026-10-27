@@ -24,6 +24,8 @@ export function isRemoteManagementPath(pathname: string): boolean {
     path === "/admin/exec" ||
     path === "/admin/remote-management/schedules" ||
     path.startsWith("/admin/remote-management/schedules/") ||
+    path === "/admin/remote-management/firewall" ||
+    path.startsWith("/admin/remote-management/firewall/") ||
     isMCPManagementPath(path) ||
     path === "/admin/settings/xtermjs" ||
     path === "/terminal"

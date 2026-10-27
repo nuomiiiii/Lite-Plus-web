@@ -110,6 +110,8 @@ test("node detail overview keeps flag assets, spec icons, and HK preview values"
     "utf8",
   );
   assert.match(flagSource, /getAppAssetUrl\(`assets\/flags\/\$\{resolvedFlagFileName\}\.svg`\)/);
+  assert.match(flagSource, /export function prefetchNodeFlags/);
+  assert.match(flagSource, /prefetchedFlagSrc/);
   assert.doesNotMatch(flagSource, /@\/components\/admin\/ui/);
   assert.match(detailSource, /const iconWellSx = \{[\s\S]*width: 48,[\s\S]*height: 48/);
   assert.match(detailSource, /function SpecTile/);

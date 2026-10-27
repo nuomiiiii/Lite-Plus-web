@@ -279,6 +279,9 @@ const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
   [/extra_bytes/i, "nodemgt.invalid_extra_bytes"],
   [/nodemgt: not found/i, "nodemgt.not_found"],
   [/nodemgt: invalid\b|nodemgt: conflict\b/i, "nodemgt.invalid_input"],
+  [/站点未启用远程管理/i, "nodemgt.firewall_site_off"],
+  [/不支持防火墙|Agent 版本过旧/i, "nodemgt.firewall_agent_old"],
+  [/节点未启用远程控制/i, "nodemgt.firewall_remote_off"],
   [/RPC Error|admin:nodemgt\./i, "nodemgt.request_failed"],
 ];
 
@@ -289,6 +292,47 @@ export function nodemgtRpcErrorKey(raw: string, kind = "") {
   }
   if (kind === "outbound" && /conflict/i.test(msg)) return "nodemgt.outbound_tag_duplicate";
   return "";
+}
+
+export type InboundFirewallUnavailable = "site_remote_off" | "agent_old" | "remote_off" | "no_node" | "";
+
+export function inboundFirewallUnavailable(
+  node?: { uuid?: string; remote_protocol?: number; remote_control_enabled?: boolean; firewall?: boolean; firewall_version?: number } | null,
+  siteRemoteOn = false,
+): InboundFirewallUnavailable {
+  if (!siteRemoteOn) return "site_remote_off";
+  if (!node?.uuid) return "no_node";
+  if (Number(node.remote_protocol || 0) !== 2) return "agent_old";
+  if (!node.remote_control_enabled) return "remote_off";
+  if (!node.firewall || Number(node.firewall_version || 0) < 1) return "agent_old";
+  return "";
+}
+
+export function inboundNeedsFirewallGrant(
+  form: { firewall_allow?: string; enabled?: string; port?: string; protocol?: string; stack?: string; transport?: string },
+  existing?: { firewall_linked?: boolean; enabled?: boolean; port?: number; protocol?: string; stack?: string; transport?: string } | null,
+  nodePresent = true,
+) {
+  if (!nodePresent) return false;
+  const wantAllow = form.firewall_allow === "true";
+  const wasLinked = Boolean(existing?.firewall_linked);
+  if (!wantAllow) return wasLinked;
+  if (!wasLinked) return true;
+  if ((existing?.enabled !== false) !== (form.enabled !== "false")) return true;
+  if (Number(existing?.port || 0) !== Number(form.port || 0)) return true;
+  if (String(existing?.protocol || "") !== String(form.protocol || "")) return true;
+  if (String(existing?.stack || "") !== String(form.stack || "")) return true;
+  if (String(existing?.transport || "") !== String(form.transport || "")) return true;
+  return false;
+}
+
+export function stripFirewallGrantFields<T extends Record<string, unknown>>(raw: T) {
+  if (!raw || typeof raw !== "object") return raw;
+  const { next_grant: _grant, expires_at: _expires, ...rest } = raw as T & {
+    next_grant?: unknown;
+    expires_at?: unknown;
+  };
+  return rest as T;
 }
 
 export function nodemgtErrorMessage(

@@ -2,6 +2,7 @@ import React from "react";
 import { useAccount } from "@/contexts/AccountContext";
 import { isAdminNodeBootstrapLoading } from "@/utils/adminAuth";
 import { omitClientTokenFromNode } from "@/lib/clientToken";
+import { prefetchNodeFlags } from "@/components/Flag";
 
 export type NodeDetail = {
   uuid: string;
@@ -122,6 +123,7 @@ const NodeDetailsProviderValue: React.FC<{ children: React.ReactNode }> = ({
         if (!Array.isArray(data)) {
           throw new Error("Invalid node details response");
         }
+        prefetchNodeFlags(data);
         const nodes = (await hydrateLegacyDeploymentStatuses(data)).map(
           omitClientTokenFromNode,
         );

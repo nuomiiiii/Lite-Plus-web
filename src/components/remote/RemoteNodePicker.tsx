@@ -46,6 +46,7 @@ type RemoteNodePickerProps<T extends RemoteNodePickerItem> = {
   columns?: 2;
   clipOverflow?: "top" | "bottom";
   onSelect: (node: T) => void;
+  allowOffline?: boolean;
 };
 
 function addressText(value: string) {
@@ -63,6 +64,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
   columns,
   clipOverflow = "bottom",
   onSelect,
+  allowOffline = false,
 }: RemoteNodePickerProps<T>) {
   const { t } = useTranslation();
   const compact = useMediaQuery(REMOTE_COMPACT_QUERY, { noSsr: true });
@@ -225,6 +227,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
               const online = onlineSet.has(node.uuid);
               const knownOnline = available && online;
               const knownOffline = available && !online;
+              const selectable = allowOffline || knownOnline;
               const selected = selectedUUID === node.uuid;
               const opened = Boolean(openedUUIDs?.has(node.uuid));
               const flag = node.region_override?.trim() || node.region?.trim() || "UN";
@@ -239,14 +242,14 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
                   className="remote-node-picker-card"
                   variant="outlined"
                   role="button"
-                  tabIndex={knownOnline ? 0 : -1}
-                  aria-disabled={!knownOnline}
-                  aria-label={knownOnline ? t("terminal.open_terminal") : t("nodeCard.offline")}
+                  tabIndex={selectable ? 0 : -1}
+                  aria-disabled={!selectable}
+                  aria-label={selectable ? node.name : t("nodeCard.offline")}
                   onClick={() => {
-                    if (knownOnline) onSelect(node);
+                    if (selectable) onSelect(node);
                   }}
                   onKeyDown={(event) => {
-                    if (!knownOnline || (event.key !== "Enter" && event.key !== " ")) return;
+                    if (!selectable || (event.key !== "Enter" && event.key !== " ")) return;
                     event.preventDefault();
                     onSelect(node);
                   }}
@@ -259,14 +262,14 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
                     borderRadius: "8px",
                     borderColor: selected ? "primary.main" : "divider",
                     bgcolor: "background.paper",
-                    cursor: knownOnline ? "pointer" : "not-allowed",
-                    opacity: knownOffline ? 0.72 : 1,
+                    cursor: selectable ? "pointer" : "not-allowed",
+                    opacity: knownOffline && !allowOffline ? 0.72 : 1,
                     px: 1.5,
                     py: 1.25,
                     boxShadow: selected
                       ? (theme) => `inset 0 0 0 1px ${theme.palette.primary.main}`
                       : "none",
-                    "&:hover": knownOnline
+                    "&:hover": selectable
                       ? { borderColor: "primary.main" }
                       : undefined,
                     "&:focus-visible": {

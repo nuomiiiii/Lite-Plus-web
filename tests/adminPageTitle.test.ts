@@ -10,6 +10,7 @@ const adminPages = [
   "src/pages/admin/returnRoute.tsx",
   "src/pages/admin/exec.tsx",
   "src/pages/admin/remote-management/mcp.tsx",
+  "src/pages/admin/remote-management/firewall.tsx",
   "src/pages/admin/settings/xtermjs.tsx",
   "src/pages/admin/settings/notification.tsx",
   "src/pages/admin/notification/center.tsx",

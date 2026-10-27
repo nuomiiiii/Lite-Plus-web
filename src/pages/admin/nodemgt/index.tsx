@@ -75,11 +75,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAccount } from "@/contexts/AccountContext";
 import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 import { useRPC2Call } from "@/contexts/RPC2Context";
+import { useSettings } from "@/lib/api";
 import { writeClipboardText } from "@/utils/clipboard";
+import { createRandomId } from "@/utils/randomId";
+import {
+  clearStoredRemoteGrant,
+  isRemoteGrantLive,
+  loadStoredRemoteGrant,
+  localizeRemoteError,
+  saveStoredRemoteGrant,
+} from "@/utils/remoteSession";
+import { confirmAdminPasskey } from "@/utils/webauthn";
 import { toast } from "sonner";
-import { displayExpiryInput, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, uuidForInbound } from "./inboundToOutbound";
+import { AppDialogContent, Dialog, Flex } from "@/components/admin/ui";
+import { displayExpiryInput, inboundFirewallUnavailable, inboundNeedsFirewallGrant, moveAdjacentIDs, nodemgtErrorMessage, normalizeExpiryInput, outboundFieldsFromInbound, outboundPasswordFromInbound, outboundTagConflict, outboundTagFromInbound, randomInboundPort, randomRealityShortID, stripFirewallGrantFields, uuidForInbound } from "./inboundToOutbound";
 import { parseShareLink } from "./shareLink";
 import {
   emptyNodemgtTemplates,
@@ -107,8 +119,9 @@ type TabKey =
   | "subscriptions"
   | "audit";
 
-type SheetKind = "inbound" | "user" | "plan" | "cert" | "subscription" | "outbound" | "route";
+type SheetKind = "inbound" | "user" | "plan" | "cert" | "subscription" | "outbound" | "route" | "node";
 type FormMap = Record<string, string>;
+const FIREWALL_GRANT_SCOPE = "nodemgt-firewall";
 
 const NODE_TABS: Record<string, TabKey> = {
   "": "overview",
@@ -136,6 +149,7 @@ const PATH_TAB: Record<string, TabKey> = Object.fromEntries(
 
 const PROTOCOLS = ["vless", "vmess", "trojan", "shadowsocks", "http", "hysteria2", "tuic", "anytls"] as const;
 const STACKS = ["ipv4", "ipv6", "dual"] as const;
+const DIAL_STACKS = ["dual", "ipv4", "ipv6", "prefer_ipv4", "prefer_ipv6"] as const;
 const FLOWS = ["", "xtls-rprx-vision", "xtls-rprx-vision-udp443"] as const;
 const CORES = ["xray", "sing-box"] as const;
 const SUB_FORMATS = ["xray", "clash", "sing-box", "base64", "mihomo", "loon", "surge", "surge-mac", "stash"] as const;
@@ -244,13 +258,33 @@ function userViewFromUpsert(raw: any) {
   return str(view.id) ? view : null;
 }
 
-function upsertedRow(kind: SheetKind, raw: any) {
-  if (kind === "user") return userViewFromUpsert(raw);
-  if (!raw || typeof raw !== "object" || raw.ok === true || !str(raw.id)) return null;
-  return raw;
+function normalizeDialStack(raw: unknown) {
+  const value = str(raw).toLowerCase();
+  if (value === "ipv4" || value === "ipv6" || value === "prefer_ipv4" || value === "prefer_ipv6") return value;
+  return "dual";
 }
 
-const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes"> = {
+function nodeForm(row?: any): FormMap {
+  const nodeUUID = str(row?.node_uuid || row?.id);
+  return {
+    id: nodeUUID,
+    node_uuid: nodeUUID,
+    dial_stack: normalizeDialStack(row?.dial_stack),
+  };
+}
+
+function upsertedRow(kind: SheetKind, raw: any) {
+  if (kind === "user") return userViewFromUpsert(raw);
+  if (kind === "node") {
+    const uuid = str(raw?.node_uuid);
+    if (!uuid) return null;
+    return { ...raw, id: uuid, dial_stack: normalizeDialStack(raw?.dial_stack) };
+  }
+  if (!raw || typeof raw !== "object" || raw.ok === true || !str(raw.id)) return null;
+  return stripFirewallGrantFields(raw);
+}
+
+const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "nodes"> = {
   inbound: "inbounds",
   user: "users",
   plan: "plans",
@@ -258,6 +292,7 @@ const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "cer
   subscription: "subs",
   outbound: "outbounds",
   route: "routes",
+  node: "nodes",
 };
 
 const DELETE_LIST_KEY: Record<string, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes"> = {
@@ -488,6 +523,7 @@ function inboundForm(row?: any): FormMap {
     share_strategy: inboundShareStrategy(row),
     exclude_from_sub: "false",
     enabled: row?.enabled === false ? "false" : "true",
+    firewall_allow: row?.firewall_linked ? "true" : "false",
   };
 }
 
@@ -781,6 +817,7 @@ function inboundUpsertBody(form: FormMap) {
     share_strategy: form.share_strategy || "node",
     exclude_from_sub: false,
     enabled: form.enabled !== "false",
+    firewall_allow: form.firewall_allow === "true",
   };
 }
 
@@ -1117,14 +1154,16 @@ function SheetSwitch({
   description,
   checked,
   onChange,
+  disabled,
 }: {
   title: string;
   description?: string;
   checked: boolean;
   onChange: (next: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <Box data-sheet-switch="" sx={{ minWidth: 0 }}>
+    <Box data-sheet-switch="" sx={{ minWidth: 0, opacity: disabled ? 0.64 : 1 }}>
       <Box
         sx={{
           display: "flex",
@@ -1134,7 +1173,7 @@ function SheetSwitch({
         }}
       >
         <Typography sx={{ fontSize: 14, fontWeight: 600, minWidth: 0 }}>{title}</Typography>
-        <Switch checked={checked} onChange={(_, next) => onChange(next)} sx={{ flexShrink: 0 }} />
+        <Switch checked={checked} disabled={disabled} onChange={(_, next) => onChange(next)} sx={{ flexShrink: 0 }} />
       </Box>
       {description ? (
         <Typography color="text.secondary" sx={{ fontSize: 12, lineHeight: 1.6, mt: 0.25 }}>
@@ -1217,6 +1256,7 @@ function SelectField({
   options,
   helper,
   searchable = false,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -1224,6 +1264,7 @@ function SelectField({
   options: SelectOption[];
   helper?: string;
   searchable?: boolean;
+  disabled?: boolean;
 }) {
   if (searchable) {
     return (
@@ -1241,6 +1282,7 @@ function SelectField({
       select
       size="small"
       fullWidth
+      disabled={disabled}
       label={label}
       helperText={helper}
       value={value}
@@ -2038,6 +2080,8 @@ export default function PlusAdminPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { nodeDetail } = useNodeDetails();
+  const { account } = useAccount();
+  const { settings: siteSettings } = useSettings();
   const tab = PATH_TAB[location.pathname] || "overview";
   const tabRef = useRef(tab);
   tabRef.current = tab;
@@ -2052,6 +2096,7 @@ export default function PlusAdminPage() {
   const [subs, setSubs] = useState<any[]>(() => cached?.subs ?? []);
   const [outbounds, setOutbounds] = useState<any[]>(() => cached?.outbounds ?? []);
   const [routes, setRoutes] = useState<any[]>(() => cached?.routes ?? []);
+  const [nodeProfiles, setNodeProfiles] = useState<any[]>(() => cached?.nodes ?? []);
   const [audit, setAudit] = useState<any[]>(() => cached?.audit ?? []);
   const [diag, setDiag] = useState<any>(() => cached?.diag ?? {});
   const [delivery, setDelivery] = useState<any[]>(() => cached?.delivery ?? []);
@@ -2078,7 +2123,20 @@ export default function PlusAdminPage() {
   const [ipLog, setIpLog] = useState<any | null>(null);
   const [error, setError] = useState("");
   const [importLink, setImportLink] = useState("");
+  const twoFaEnabled = Boolean(account?.["2fa_enabled"]);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  const [, setHasGrant] = useState(() => Boolean(loadStoredRemoteGrant(FIREWALL_GRANT_SCOPE)));
+  const grantRef = useRef("");
+  const grantExpiresAtRef = useRef(0);
+  const pageIDRef = useRef(loadStoredRemoteGrant(FIREWALL_GRANT_SCOPE)?.pageID || createRandomId());
+  const [authPassword, setAuthPassword] = useState("");
+  const [authOtp, setAuthOtp] = useState("");
+  const [fwAuthOpen, setFwAuthOpen] = useState(false);
+  const [fwAuthPending, setFwAuthPending] = useState<"save" | "toggle" | "delete" | null>(null);
+  const fwToggleRef = useRef<{ row: any; enabled: boolean } | null>(null);
+  const fwDeleteIdRef = useRef("");
 
+  const siteRemoteOn = siteSettings?.allow_remote_management === true;
   const nodes = nodeDetail || [];
   const nodeOptions = useMemo(
     () => nodes.map((node) => ({ value: node.uuid, label: node.name || node.uuid })),
@@ -2089,6 +2147,87 @@ export default function PlusAdminPage() {
     [nodeOptions],
   );
 
+  const clearGrant = useCallback(() => {
+    grantRef.current = "";
+    grantExpiresAtRef.current = 0;
+    clearStoredRemoteGrant(FIREWALL_GRANT_SCOPE);
+    setHasGrant(false);
+  }, []);
+  const rememberGrant = useCallback((grant?: string, expiresAt?: string) => {
+    if (!grant) {
+      clearGrant();
+      return;
+    }
+    const expires = Date.parse(String(expiresAt ?? ""));
+    grantRef.current = grant;
+    grantExpiresAtRef.current = Number.isFinite(expires) ? expires : 0;
+    saveStoredRemoteGrant(FIREWALL_GRANT_SCOPE, grant, grantExpiresAtRef.current, pageIDRef.current);
+    setHasGrant(true);
+  }, [clearGrant]);
+  useEffect(() => {
+    const stored = loadStoredRemoteGrant(FIREWALL_GRANT_SCOPE);
+    if (!stored) return;
+    grantRef.current = stored.grant;
+    grantExpiresAtRef.current = stored.expiresAt;
+    if (stored.pageID) pageIDRef.current = stored.pageID;
+    setHasGrant(true);
+  }, []);
+  useEffect(() => {
+    fetch("/api/admin/account/passkeys")
+      .then((response) => response.json())
+      .then((body) => {
+        const items = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+        setPasskeyAvailable(items.length > 0);
+      })
+      .catch(() => setPasskeyAvailable(false));
+  }, []);
+  const authorizeFirewall = async (password: string, otp: string, usePasskey: boolean) => {
+    if (isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+      const grant = grantRef.current;
+      grantRef.current = "";
+      setHasGrant(false);
+      return grant;
+    }
+    let ceremony_id: string | undefined;
+    let credential: unknown;
+    if (usePasskey) {
+      const assertion = await confirmAdminPasskey();
+      ceremony_id = assertion.ceremony_id;
+      credential = assertion.credential;
+    }
+    const response = await fetch("/api/admin/client/remote/authorize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        scope: "exec",
+        page_id: pageIDRef.current,
+        password: usePasskey || twoFaEnabled ? undefined : password || undefined,
+        otp: usePasskey || !twoFaEnabled ? undefined : otp,
+        ceremony_id,
+        credential,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
+    const grant = payload?.data?.grant;
+    if (typeof grant !== "string" || !grant) throw new Error(t("terminal.session.auth_failed"));
+    return grant;
+  };
+  const takeFirewallResult = (raw: any) => {
+    rememberGrant(raw?.next_grant, raw?.expires_at);
+    return stripFirewallGrantFields(raw || {});
+  };
+  const firewallUnavailableLabel = (reason: ReturnType<typeof inboundFirewallUnavailable>) => {
+    if (reason === "site_remote_off") return t("nodemgt.firewall_site_off");
+    if (reason === "agent_old") return t("nodemgt.firewall_agent_old");
+    if (reason === "remote_off") return t("nodemgt.firewall_remote_off");
+    if (reason === "no_node") return t("nodemgt.firewall_allow_need_node");
+    return "";
+  };
+  const inboundNodeOf = (uuid: string) => nodes.find((node) => node.uuid === uuid);
+  const inboundFirewallReason = (uuid: string) => inboundFirewallUnavailable(inboundNodeOf(uuid), siteRemoteOn);
+
   const applySnapshot = useCallback((snap: NodemgtSnapshot) => {
     setInbounds(snap.inbounds);
     setUsers(snap.users);
@@ -2098,6 +2237,7 @@ export default function PlusAdminPage() {
     setSubs(snap.subs);
     setOutbounds(snap.outbounds);
     setRoutes(snap.routes);
+    setNodeProfiles((snap.nodes || []).map((row) => ({ ...row, id: str(row?.node_uuid || row?.id) })));
     setAudit(snap.audit);
     setDiag(snap.diag);
     setDelivery(snap.delivery);
@@ -2112,7 +2252,7 @@ export default function PlusAdminPage() {
   }, []);
 
   const commitRows = useCallback((
-    key: "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes",
+    key: "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "nodes",
     mutate: (rows: any[]) => any[],
   ) => {
     const patch = (current: any[]) => {
@@ -2141,6 +2281,9 @@ export default function PlusAdminPage() {
         break;
       case "routes":
         setRoutes(patch);
+        break;
+      case "nodes":
+        setNodeProfiles(patch);
         break;
     }
   }, []);
@@ -2241,6 +2384,8 @@ export default function PlusAdminPage() {
   };
 
   const nodeDelivery = (uuid: string) => delivery.find((row) => row.node_uuid === uuid);
+  const nodeDialStackOf = (uuid: string) =>
+    normalizeDialStack(nodeProfiles.find((row) => row.node_uuid === uuid)?.dial_stack);
 
   const matchSearch = (row: any, keys: string[]) => {
     const q = search.trim().toLowerCase();
@@ -2279,6 +2424,7 @@ export default function PlusAdminPage() {
       return {
         node_uuid: node.value,
         name: node.label,
+        dial_stack: normalizeDialStack(nodeProfiles.find((row) => row.node_uuid === node.value)?.dial_stack),
         status,
         last_error: status === "failed" ? cmd?.last_error : undefined,
         updated_at: cmd?.updated_at || cmd?.created_at,
@@ -2442,6 +2588,7 @@ export default function PlusAdminPage() {
       subscription: subscriptionForm({}),
       outbound: outboundForm({}),
       route: routeForm({}),
+      node: nodeForm({ node_uuid: nodeFilter }),
     };
     setError("");
     setImportLink("");
@@ -2458,6 +2605,7 @@ export default function PlusAdminPage() {
       subscription: subscriptionForm(row),
       outbound: outboundForm(row),
       route: routeForm(row),
+      node: nodeForm(row),
     };
     setError("");
     setImportLink("");
@@ -2534,7 +2682,7 @@ export default function PlusAdminPage() {
     patchNodemgtSnapshot({ templates: next });
   }, []);
 
-  const save = async () => {
+  const save = async (firewallGrant?: string) => {
     if (!sheet) return;
     setSaving(true);
     setError("");
@@ -2555,7 +2703,28 @@ export default function PlusAdminPage() {
           setError(t("nodemgt.invalid_inbound_port"));
           return;
         }
-        saved = await call("admin:nodemgt.inbound.upsert", inboundUpsertBody(form));
+        const existing = inbounds.find((row) => str(row.id) === form.id) || null;
+        const needsGrant = inboundNeedsFirewallGrant(form, existing, Boolean(inboundNodeOf(form.node_uuid)));
+        if (needsGrant) {
+          if (form.firewall_allow === "true" && form.enabled !== "false") {
+            const reason = inboundFirewallReason(form.node_uuid);
+            if (reason) {
+              setError(firewallUnavailableLabel(reason));
+              return;
+            }
+          }
+          if (!firewallGrant && !isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+            setFwAuthPending("save");
+            setFwAuthOpen(true);
+            return;
+          }
+        }
+        const body: Record<string, unknown> = inboundUpsertBody(form);
+        if (needsGrant) {
+          body.grant = firewallGrant || await authorizeFirewall("", "", false);
+          body.page_id = pageIDRef.current;
+        }
+        saved = takeFirewallResult(await call("admin:nodemgt.inbound.upsert", body));
       } else if (sheet.kind === "user") {
         const inboundIds = form.inbound_ids.split(",").map((item) => item.trim()).filter(Boolean);
         if (!inboundIds.length) {
@@ -2643,41 +2812,87 @@ export default function PlusAdminPage() {
           return;
         }
         saved = await call("admin:nodemgt.route.upsert", routeUpsertBody(form));
+      } else if (sheet.kind === "node") {
+        if (!form.node_uuid) {
+          setError(t("nodemgt.node_help"));
+          return;
+        }
+        saved = await call("admin:nodemgt.node.upsert", {
+          node_uuid: form.node_uuid,
+          dial_stack: normalizeDialStack(form.dial_stack),
+        });
       }
       const row = upsertedRow(sheet.kind, saved);
       if (row) commitRows(SNAPSHOT_LIST_KEY[sheet.kind], (rows) => mergeById(rows, row));
       const nodeUUID = form.node_uuid;
-      const syncsNode = sheet.kind === "inbound" || sheet.kind === "outbound" || sheet.kind === "route" || sheet.kind === "user" || sheet.kind === "cert";
+      const syncsNode = sheet.kind === "inbound" || sheet.kind === "outbound" || sheet.kind === "route" || sheet.kind === "user" || sheet.kind === "cert" || sheet.kind === "node";
       closeSheet();
       const rows = await loadAfterChange();
       if (syncsNode) toastAfterSync(nodeUUID, rows);
       else toast.success(t("nodemgt.saved"));
     } catch (err) {
-      setError(nodemgtErrorMessage(err, t, sheet.kind));
+      setError(localizeRemoteError(err instanceof Error ? err.message : "", t) || nodemgtErrorMessage(err, t, sheet.kind));
     } finally {
       setSaving(false);
     }
   };
 
-  const removeRow = async (method: string, id: string) => {
+  const removeRow = async (method: string, id: string, firewallGrant?: string) => {
     try {
-      await call(method, { id });
+      const params: Record<string, unknown> = { id };
+      if (method === "admin:nodemgt.inbound.delete") {
+        const row = inbounds.find((item) => str(item?.id) === id);
+        const nodePresent = Boolean(inboundNodeOf(str(row?.node_uuid)));
+        const linked = nodePresent && (Boolean(row?.firewall_linked) || (sheet?.kind === "inbound" && sheet.form.id === id && sheet.form.firewall_allow === "true"));
+        if (linked) {
+          if (!firewallGrant && !isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+            fwDeleteIdRef.current = id;
+            setFwAuthPending("delete");
+            setFwAuthOpen(true);
+            return;
+          }
+          params.grant = firewallGrant || await authorizeFirewall("", "", false);
+          params.page_id = pageIDRef.current;
+        }
+      }
+      const raw = await call(method, params);
+      if (method === "admin:nodemgt.inbound.delete") takeFirewallResult(raw);
       const key = DELETE_LIST_KEY[method];
       if (key) commitRows(key, (rows) => rows.filter((item) => str(item?.id) !== id));
       closeSheet();
       toast.success(t("nodemgt.saved"));
       void load({ force: true, reload: true }).catch(() => undefined);
     } catch (err) {
-      toast.error(nodemgtErrorMessage(err, t));
+      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || nodemgtErrorMessage(err, t));
     }
   };
 
-  const toggleRowEnabled = async (kind: "inbound" | "outbound" | "route" | "subscription", row: any, enabled: boolean) => {
+  const toggleRowEnabled = async (kind: "inbound" | "outbound" | "route" | "subscription", row: any, enabled: boolean, firewallGrant?: string) => {
     const formEnabled = enabled ? "true" : "false";
     try {
       let saved: any;
       if (kind === "inbound") {
-        saved = await call("admin:nodemgt.inbound.upsert", inboundUpsertBody({ ...inboundForm(row), enabled: formEnabled }));
+        if (row.firewall_linked && inboundNodeOf(str(row.node_uuid))) {
+          if (enabled) {
+            const reason = inboundFirewallReason(row.node_uuid);
+            if (reason) {
+              toast.error(firewallUnavailableLabel(reason));
+              return;
+            }
+          }
+          if (!firewallGrant && !isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+            fwToggleRef.current = { row, enabled };
+            setFwAuthPending("toggle");
+            setFwAuthOpen(true);
+            return;
+          }
+          const body: Record<string, unknown> = inboundUpsertBody({ ...inboundForm(row), enabled: formEnabled });
+          body.grant = firewallGrant || await authorizeFirewall("", "", false);
+          body.page_id = pageIDRef.current;
+          saved = takeFirewallResult(await call("admin:nodemgt.inbound.upsert", body));
+        } else {
+          saved = await call("admin:nodemgt.inbound.upsert", inboundUpsertBody({ ...inboundForm(row), enabled: formEnabled }));
+        }
       } else if (kind === "outbound") {
         saved = await call("admin:nodemgt.outbound.upsert", outboundUpsertBody({ ...outboundForm(row), enabled: formEnabled }));
       } else if (kind === "route") {
@@ -2689,7 +2904,27 @@ export default function PlusAdminPage() {
       if (next) commitRows(SNAPSHOT_LIST_KEY[kind], (rows) => mergeById(rows, next));
       toastAfterSync(row.node_uuid, await loadAfterChange());
     } catch (err) {
-      toast.error(nodemgtErrorMessage(err, t));
+      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || nodemgtErrorMessage(err, t));
+    }
+  };
+
+  const confirmFirewallAuth = async (usePasskey = false) => {
+    try {
+      const grant = await authorizeFirewall(authPassword, authOtp, usePasskey);
+      if (fwAuthPending === "save") {
+        await save(grant);
+      } else if (fwAuthPending === "toggle" && fwToggleRef.current) {
+        const pending = fwToggleRef.current;
+        await toggleRowEnabled("inbound", pending.row, pending.enabled, grant);
+      } else if (fwAuthPending === "delete") {
+        await removeRow("admin:nodemgt.inbound.delete", fwDeleteIdRef.current, grant);
+      }
+      setFwAuthOpen(false);
+      setFwAuthPending(null);
+      setAuthPassword("");
+      setAuthOtp("");
+    } catch (err) {
+      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || nodemgtErrorMessage(err, t));
     }
   };
 
@@ -3594,11 +3829,18 @@ export default function PlusAdminPage() {
             />
           ) : (
             <RecordTable
+              id="overview"
               empty={t("nodemgt.no_nodes")}
               loading={loading}
               rows={listPager.pageItems}
               columns={[
                 { key: "name", label: t("nodemgt.col_node"), render: (row) => row.name || nodeName(row.node_uuid) },
+                {
+                  key: "dial_stack",
+                  width: "16%",
+                  label: t("nodemgt.col_dial_stack"),
+                  render: (row) => t(`nodemgt.stack_${normalizeDialStack(row.dial_stack)}`),
+                },
                 {
                   key: "status",
                   label: t("nodemgt.col_delivery"),
@@ -3606,7 +3848,7 @@ export default function PlusAdminPage() {
                 },
                 {
                   key: "last_error",
-                  width: "28%",
+                  width: "22%",
                   label: t("nodemgt.col_last_error"),
                   render: (row) =>
                     row.last_error ? (
@@ -3619,9 +3861,21 @@ export default function PlusAdminPage() {
                 },
                 {
                   key: "updated_at",
-                  width: "18%",
+                  width: "16%",
                   label: t("nodemgt.col_created_at"),
                   render: (row) => formatWhen(row.updated_at || row.created_at),
+                },
+                {
+                  key: "actions",
+                  width: "10%",
+                  label: t("nodemgt.col_actions"),
+                  render: (row) => (
+                    <RowActions>
+                      <IconButton size="small" aria-label={t("nodemgt.edit")} onClick={() => openEdit("node", row)}>
+                        <Pencil size={16} />
+                      </IconButton>
+                    </RowActions>
+                  ),
                 },
               ]}
             />
@@ -3650,12 +3904,12 @@ export default function PlusAdminPage() {
             confirmDisabled={saving}
             loading={saving}
             left={
-              sheet?.form.id ? (
+              sheet?.form.id && sheet.kind !== "node" ? (
                 <Button
                   color="error"
                   variant="outlined"
                   onClick={() => {
-                    const methods: Record<SheetKind, string> = {
+                    const methods: Partial<Record<SheetKind, string>> = {
                       inbound: "admin:nodemgt.inbound.delete",
                       user: "admin:nodemgt.user.delete",
                       plan: "admin:nodemgt.plan.delete",
@@ -3795,6 +4049,16 @@ export default function PlusAdminPage() {
                     placeholder={t("nodemgt.share_other_placeholder")}
                   />
                 ) : null}
+                <SheetSwitch
+                  title={t("nodemgt.firewall_allow")}
+                  description={t("nodemgt.firewall_allow_help")}
+                  checked={sheet.form.firewall_allow === "true"}
+                  disabled={Boolean(inboundFirewallReason(sheet.form.node_uuid)) && sheet.form.firewall_allow !== "true"}
+                  onChange={(next) => {
+                    if (next && inboundFirewallReason(sheet.form.node_uuid)) return;
+                    setForm({ firewall_allow: next ? "true" : "false" });
+                  }}
+                />
                 <TwoCol>
                   <Field label={t("nodemgt.col_sub_sort")} value={sheet.form.sort_index} onChange={(value) => setForm({ sort_index: value })} helper={t("nodemgt.sub_sort_help")} />
                   <Field
@@ -4312,6 +4576,7 @@ export default function PlusAdminPage() {
               <SelectField label={t("nodemgt.col_core")} value={sheet.form.core} onChange={(value) => setForm({ core: value, flow: flowForCore(sheet.form.flow, value) })} options={coresFor(sheet.form.protocol).map((value) => ({ value, label: displayCore(value) }))} />
             </TwoCol>
             {sheet.form.protocol === "freedom" ? (
+              nodeDialStackOf(sheet.form.node_uuid) === "dual" ? (
               <SelectField
                 label={t("nodemgt.domain_strategy")}
                 value={sheet.form.domain_strategy || "AsIs"}
@@ -4319,6 +4584,19 @@ export default function PlusAdminPage() {
                 options={DOMAIN_STRATEGIES.map((value) => ({ value, label: value }))}
                 helper={t("nodemgt.domain_strategy_help")}
               />
+              ) : (
+              <SelectField
+                label={t("nodemgt.domain_strategy")}
+                value={nodeDialStackOf(sheet.form.node_uuid)}
+                onChange={() => undefined}
+                disabled
+                options={[{
+                  value: nodeDialStackOf(sheet.form.node_uuid),
+                  label: t(`nodemgt.stack_${nodeDialStackOf(sheet.form.node_uuid)}`),
+                }]}
+                helper={t("nodemgt.domain_strategy_node_help")}
+              />
+              )
             ) : null}
             {isProxyOutbound(sheet.form.protocol) ? (
               <>
@@ -4507,7 +4785,59 @@ export default function PlusAdminPage() {
             ) : null}
           </SheetPane>
         ) : null}
+        {sheet?.kind === "node" ? (
+          <SheetPane>
+            <SelectField
+              label={t("nodemgt.col_dial_stack")}
+              value={sheet.form.dial_stack}
+              onChange={(value) => setForm({ dial_stack: value })}
+              options={DIAL_STACKS.map((value) => ({ value, label: t(`nodemgt.stack_${value}`) }))}
+              helper={t("nodemgt.dial_stack_help")}
+            />
+          </SheetPane>
+        ) : null}
       </SettingsSheetDialog>
+
+      <Dialog.Root
+        open={fwAuthOpen}
+        onOpenChange={(next: boolean) => {
+          if (!next) {
+            setFwAuthOpen(false);
+            setFwAuthPending(null);
+          }
+        }}
+      >
+        <AppDialogContent title={t("firewall.auth_title")} description={t("firewall.auth_help")}>
+          <TextField
+            size="small"
+            fullWidth
+            sx={{ mt: 2, ...settingsFieldSx }}
+            type={twoFaEnabled ? "text" : "password"}
+            autoComplete={twoFaEnabled ? "one-time-code" : "current-password"}
+            label={twoFaEnabled ? t("admin.nodeTable.twoFactorCode") : t("login.password")}
+            value={twoFaEnabled ? authOtp : authPassword}
+            onChange={(event) => {
+              if (twoFaEnabled) setAuthOtp(event.target.value.replace(/\D/g, "").slice(0, 6));
+              else setAuthPassword(event.target.value);
+            }}
+          />
+          <Flex justify="end" gap="2" className="mt-4">
+            <Button onClick={() => { setFwAuthOpen(false); setFwAuthPending(null); }}>{t("common.cancel")}</Button>
+            {passkeyAvailable ? (
+              <Button variant="outlined" onClick={() => void confirmFirewallAuth(true)}>
+                {t("login.passkey")}
+              </Button>
+            ) : null}
+            <Button
+              variant="contained"
+              disabled={twoFaEnabled ? !authOtp.trim() : !authPassword.trim()}
+              onClick={() => void confirmFirewallAuth(false)}
+            >
+              {t("scheduled_exec.confirm")}
+            </Button>
+          </Flex>
+        </AppDialogContent>
+      </Dialog.Root>
 
       <SettingsSheetDialog
         open={Boolean(secret)}
@@ -4683,6 +5013,8 @@ function columnMinWidth(column: RecordColumn) {
       return 152;
     case "delivery":
       return 80;
+    case "dial_stack":
+      return 120;
     case "enabled":
     case "auto_renew":
       return 64;

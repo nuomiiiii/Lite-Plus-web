@@ -48,9 +48,34 @@ const getCountryCodeFromFlagEmoji = (emoji?: string | null): string | null => {
   return null;
 };
 
-const Flag = React.memo(({ flag, size, compact = false, width, height }: FlagProps) => {
+const prefetchedFlagSrc = new Set<string>();
+
+function flagAssetUrl(flag?: string | null): string {
   const resolvedFlagFileName = getCountryCodeFromFlagEmoji(flag) ?? getRegionCode(flag);
-  const imgSrc = getAppAssetUrl(`assets/flags/${resolvedFlagFileName}.svg`);
+  return getAppAssetUrl(`assets/flags/${resolvedFlagFileName}.svg`);
+}
+
+export function prefetchFlag(flag?: string | null) {
+  const src = flagAssetUrl(flag);
+  if (!src || prefetchedFlagSrc.has(src)) return;
+  prefetchedFlagSrc.add(src);
+  if (typeof Image === "undefined") return;
+  const image = new Image();
+  image.decoding = "async";
+  image.src = src;
+}
+
+export function prefetchNodeFlags(
+  nodes: Array<{ region?: string | null; region_override?: string | null }>,
+) {
+  for (const node of nodes) {
+    prefetchFlag(node.region_override?.trim() || node.region?.trim() || "UN");
+  }
+}
+
+const Flag = React.memo(({ flag, size, compact = false, width, height }: FlagProps) => {
+  const imgSrc = flagAssetUrl(flag);
+  const resolvedFlagFileName = getCountryCodeFromFlagEmoji(flag) ?? getRegionCode(flag);
   const altText = `地区旗帜: ${resolvedFlagFileName}`;
   const frameWidth = width ?? (compact ? 20 : undefined);
   const frameHeight = height ?? (compact ? 15 : undefined);
@@ -73,6 +98,10 @@ const Flag = React.memo(({ flag, size, compact = false, width, height }: FlagPro
       <img
         src={imgSrc}
         alt={altText}
+        width={frameWidth}
+        height={frameHeight}
+        decoding="async"
+        draggable={false}
         style={{ width: "100%", height: "100%", objectFit: "contain" }}
       />
     </span>

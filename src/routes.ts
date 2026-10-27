@@ -81,6 +81,7 @@ const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin/logs": () => import("./pages/admin/log"),
   "/admin/exec": () => import("./pages/admin/exec"),
   "/admin/remote-management/schedules": () => import("./pages/admin/remote-management/schedules"),
+  "/admin/remote-management/firewall": () => import("./pages/admin/remote-management/firewall"),
   "/admin/remote-management/mcp": () => import("./pages/admin/remote-management/mcp"),
   "/admin/theme_managed": () => import("./pages/admin/theme_managed.tsx"),
   "/admin/theme_raw": () => import("./pages/admin/theme_raw.tsx"),
@@ -160,6 +161,14 @@ export const preloadAdminRoute = async (target: string): Promise<void> => {
     void import("./lib/accountPasskeys")
       .then((mod) => mod.prefetchAccountPasskeys())
       .catch(() => undefined);
+  }
+  if (pathname.startsWith("/admin/remote-management/firewall")) {
+    const uuid = new URLSearchParams(target.split("?")[1] || "").get("uuid")?.trim() || "";
+    if (uuid) {
+      void import("./pages/admin/remote-management/firewallPrefetch")
+        .then((mod) => mod.prefetchFirewallView(uuid))
+        .catch(() => undefined);
+    }
   }
   await Promise.all(
     expandAdminPreloadTargets(pathname).map((path) => {
@@ -417,6 +426,12 @@ export const routes: RouteObject[] = [
         path: "remote-management/schedules/:scheduleId?",
         element: React.createElement(
           lazy(() => import("./pages/admin/remote-management/schedules")),
+        ),
+      },
+      {
+        path: "remote-management/firewall",
+        element: React.createElement(
+          lazy(() => import("./pages/admin/remote-management/firewall")),
         ),
       },
       {

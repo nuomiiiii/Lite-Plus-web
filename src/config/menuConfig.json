@@ -105,6 +105,11 @@
           "icon": "Schedule"
         },
         {
+          "labelKey": "firewall.title",
+          "path": "/admin/remote-management/firewall",
+          "icon": "Firewall"
+        },
+        {
           "labelKey": "mcp.title",
           "path": "/admin/remote-management/mcp",
           "icon": "Hub"
