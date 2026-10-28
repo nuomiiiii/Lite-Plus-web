@@ -40,6 +40,23 @@ test("uses node IP, listen address, or custom share host", () => {
   assert.equal(inboundSharePort({ port: 443 }), "443");
 });
 
+test("shadowsocks outbound copy keeps tcp transport", () => {
+  const got = outboundFieldsFromInbound(
+    {
+      protocol: "shadowsocks",
+      transport: "tcp,udp",
+      ss_method: "aes-128-gcm",
+      port: 8388,
+      share_strategy: "other",
+      public_host: "ss.example.com",
+    },
+    { ipv4: "ignored" },
+  );
+  assert.equal(got.protocol, "shadowsocks");
+  assert.equal(got.transport, "tcp");
+  assert.equal(got.ss_method, "aes-128-gcm");
+});
+
 test("copies REALITY inbound fields into an outbound", () => {
   const got = outboundFieldsFromInbound(
     {

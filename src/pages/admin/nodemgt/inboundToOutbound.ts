@@ -88,7 +88,7 @@ export function outboundFieldsFromInbound(
 ) {
   const protocol = String(inbound?.protocol || "vless");
   const security = String(inbound?.security || "none");
-  const transport = String(inbound?.transport || "tcp");
+  const transport = protocol === "shadowsocks" ? "tcp" : String(inbound?.transport || "tcp");
   const address = inboundShareHost(inbound, node, cert);
   const dest_port = inboundSharePort(inbound);
   const sni = shareSNI(inbound, security);

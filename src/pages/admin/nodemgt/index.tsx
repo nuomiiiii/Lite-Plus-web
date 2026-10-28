@@ -179,8 +179,24 @@ const OUTBOUND_TRANSPORTS = ["tcp", "ws", "grpc", "httpupgrade", "xhttp"] as con
 
 function transportsFor(protocol: string) {
   if (protocol === "hysteria2" || protocol === "tuic") return ["quic"];
-  if (protocol === "shadowsocks" || protocol === "anytls" || protocol === "http") return ["tcp"];
+  if (protocol === "shadowsocks") return ["tcp,udp", "tcp", "udp"];
+  if (protocol === "anytls" || protocol === "http") return ["tcp"];
   return ["tcp", "ws", "grpc", "httpupgrade", "xhttp"];
+}
+
+function transportLabelKey(value: string) {
+  if (value === "tcp,udp") return "nodemgt.transport_tcp_udp";
+  return `nodemgt.transport_${value}`;
+}
+
+function inboundUsesUDP(protocol: string, transport: string) {
+  if (protocol === "hysteria2" || protocol === "tuic") return true;
+  if (protocol === "shadowsocks") return transport !== "tcp";
+  return false;
+}
+
+function inboundShowsUDPFragment(protocol: string, transport: string, core: string) {
+  return inboundUsesUDP(protocol, transport) && core === "sing-box";
 }
 
 function securitiesFor(protocol: string, transport: string) {
@@ -348,7 +364,9 @@ function defaultCore(protocol: string) {
 }
 
 function defaultTransport(protocol: string) {
-  return protocol === "hysteria2" || protocol === "tuic" ? "quic" : "tcp";
+  if (protocol === "hysteria2" || protocol === "tuic") return "quic";
+  if (protocol === "shadowsocks") return "tcp,udp";
+  return "tcp";
 }
 
 function defaultSecurity(protocol: string): "none" | "tls" | "reality" {
@@ -488,7 +506,10 @@ function accountsFormValue(raw: unknown, protocol?: string) {
 function inboundForm(row?: any): FormMap {
   const existing = Boolean(row?.id);
   const protocol = str(row?.protocol, "vless");
-  const transport = str(row?.transport, defaultTransport(protocol));
+  let transport = str(row?.transport, defaultTransport(protocol));
+  if (protocol === "shadowsocks" && !transportsFor(protocol).includes(transport)) {
+    transport = defaultTransport(protocol);
+  }
   const security = str(row?.security, defaultSecurity(protocol));
   const core = str(row?.core, defaultCore(protocol));
   return {
@@ -526,6 +547,7 @@ function inboundForm(row?: any): FormMap {
     tcp_header: str(row?.tcp_header, "none"),
     tcp_host: str(row?.tcp_host),
     ss_method: str(row?.ss_method, DEFAULT_SS_METHOD),
+    udp_fragment: row?.udp_fragment === true || row?.udp_fragment === "true" ? "true" : "false",
     accounts: accountsFormValue(row?.accounts, protocol),
     allow_transparent: row?.allow_transparent === true || row?.allow_transparent === "true" ? "true" : "false",
     sort_index: row?.id ? str(row?.sort_index) : "",
@@ -792,6 +814,13 @@ function inboundSortIndexValue(raw: unknown): number | undefined {
   return n;
 }
 
+function inboundSortKey(row: { sort_index?: number | string | null }) {
+  const raw = row?.sort_index;
+  if (raw == null || raw === "") return Number.POSITIVE_INFINITY;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+}
+
 function inboundUpsertBody(form: FormMap) {
   return {
     id: form.id || undefined,
@@ -828,6 +857,7 @@ function inboundUpsertBody(form: FormMap) {
     tcp_header: form.tcp_header,
     tcp_host: form.tcp_host,
     ss_method: form.ss_method,
+    udp_fragment: inboundShowsUDPFragment(form.protocol, form.transport, form.core) ? form.udp_fragment === "true" : undefined,
     accounts: parseProxyAccounts(form.accounts),
     allow_transparent: form.allow_transparent === "true",
     sort_index: inboundSortIndexValue(form.sort_index),
@@ -2414,7 +2444,7 @@ export default function PlusAdminPage() {
   const visibleInbounds = inbounds
     .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
     .slice()
-    .sort((a, b) => Number(a.sort_index || 0) - Number(b.sort_index || 0) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    .sort((a, b) => inboundSortKey(a) - inboundSortKey(b) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
   const visibleUsers = users.filter((row) => matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
   const visiblePlans = plans.filter((row) => matchSearch(row, ["name"]));
   const visibleCerts = certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"]));
@@ -3112,7 +3142,7 @@ export default function PlusAdminPage() {
       .slice()
       .sort(
         (a, b) =>
-          Number(a.sort_index || 0) - Number(b.sort_index || 0) ||
+          inboundSortKey(a) - inboundSortKey(b) ||
           String(a.created_at || "").localeCompare(String(b.created_at || "")),
       );
     const ids = moveAdjacentIDs(pool, row.id, dir);
@@ -4019,6 +4049,7 @@ export default function PlusAdminPage() {
                         ss_method: value === "shadowsocks" ? sheet.form.ss_method || DEFAULT_SS_METHOD : sheet.form.ss_method,
                         accounts: value === "http" ? accountsFormValue(sheet.form.accounts, "http") : sheet.form.accounts,
                         allow_transparent: value === "http" ? sheet.form.allow_transparent : "false",
+                        udp_fragment: inboundShowsUDPFragment(value, transport, core) ? "false" : sheet.form.udp_fragment,
                       });
                     }}
                     options={PROTOCOLS.map((value) => ({ value, label: t(`nodemgt.proto_${value}`) }))}
@@ -4032,6 +4063,9 @@ export default function PlusAdminPage() {
                         flow: canUseFlow(sheet.form.protocol, sheet.form.transport, sheet.form.security, value)
                           ? flowForCore(sheet.form.flow, value) || defaultInboundFlow(sheet.form.protocol, sheet.form.transport, sheet.form.security, value)
                           : "",
+                        udp_fragment: inboundShowsUDPFragment(sheet.form.protocol, sheet.form.transport, value)
+                          ? sheet.form.udp_fragment
+                          : "false",
                       })
                     }
                     options={coresFor(sheet.form.protocol).map((value) => ({ value, label: displayCore(value) }))}
@@ -4118,22 +4152,34 @@ export default function PlusAdminPage() {
             {sheetTab === "transport" ? (
               <>
                 <SelectField
-                  label={t("nodemgt.col_transport")}
+                  label={sheet.form.protocol === "shadowsocks" ? t("nodemgt.col_network") : t("nodemgt.col_transport")}
                   value={sheet.form.transport}
                   onChange={(value) => {
                     const allowed = securitiesFor(sheet.form.protocol, value);
                     const security = allowed.includes(sheet.form.security) ? sheet.form.security : allowed[0];
-                    setForm({
+                    const patch: FormMap = {
                       transport: value,
                       security,
                       flow: canUseFlow(sheet.form.protocol, value, security, sheet.form.core)
                         ? sheet.form.flow || defaultInboundFlow(sheet.form.protocol, value, security, sheet.form.core)
                         : "",
-                    });
+                    };
+                    if (!inboundShowsUDPFragment(sheet.form.protocol, value, sheet.form.core)) {
+                      patch.udp_fragment = "false";
+                    }
+                    setForm(patch);
                   }}
-                  options={transportsFor(sheet.form.protocol).map((value) => ({ value, label: t(`nodemgt.transport_${value}`) }))}
+                  options={transportsFor(sheet.form.protocol).map((value) => ({ value, label: t(transportLabelKey(value)) }))}
                 />
-            {sheet.form.transport === "tcp" && sheet.form.protocol !== "anytls" && sheet.form.protocol !== "http" ? (
+            {inboundShowsUDPFragment(sheet.form.protocol, sheet.form.transport, sheet.form.core) ? (
+              <SheetSwitch
+                title={t("nodemgt.udp_fragment")}
+                description={t("nodemgt.udp_fragment_help")}
+                checked={sheet.form.udp_fragment !== "false"}
+                onChange={(next) => setForm({ udp_fragment: next ? "true" : "false" })}
+              />
+            ) : null}
+            {sheet.form.transport === "tcp" && sheet.form.protocol !== "anytls" && sheet.form.protocol !== "http" && sheet.form.protocol !== "shadowsocks" ? (
               <TwoCol>
                 <SelectField
                   label={t("nodemgt.tcp_header")}
@@ -4250,7 +4296,7 @@ export default function PlusAdminPage() {
                   value={REALITY_DESTS.includes(sheet.form.reality_dest as (typeof REALITY_DESTS)[number]) ? sheet.form.reality_dest : "__custom"}
                   onChange={(value) => {
                     if (value === "__custom") {
-                      setForm({ reality_dest: "" });
+                      setForm({ reality_dest: "", reality_server_names: "", sni: "" });
                       return;
                     }
                     setForm({ reality_dest: value, reality_server_names: destHost(value), sni: destHost(value) });

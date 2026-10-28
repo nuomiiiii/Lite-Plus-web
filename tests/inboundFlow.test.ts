@@ -34,6 +34,11 @@ test("choosing reality overwrites leftover tls/hy2 sni with the dest host", () =
   assert.match(source, /sni: destHost\(value\)/);
 });
 
+test("custom reality dest clears leftover sni then copies typed dest host", () => {
+  assert.match(source, /setForm\(\{ reality_dest: "", reality_server_names: "", sni: "" \}\)/);
+  assert.match(source, /onChange=\{\(value\) => setForm\(\{ reality_dest: value, reality_server_names: destHost\(value\), sni: destHost\(value\) \}\)\}/);
+});
+
 test("disabled routes outbounds and users still follow the node apply-config chip", () => {
   assert.doesNotMatch(source, /function rowPushedToNode/);
   assert.doesNotMatch(source, /if \(!rowPushedToNode\(row\)\) return "not_started"/);
@@ -84,6 +89,19 @@ test("save and delete patch the list before reload so a fetch failure cannot hid
   assert.match(source, /reload:\s*true/);
   assert.match(source, /DELETE_LIST_KEY/);
   assert.match(source, /commitRows\(key/);
+});
+
+test("shadowsocks inbound network is tcp,udp / tcp / udp", () => {
+  assert.match(source, /if \(protocol === "shadowsocks"\) return \["tcp,udp", "tcp", "udp"\]/);
+  assert.match(source, /if \(protocol === "shadowsocks"\) return "tcp,udp"/);
+  assert.match(source, /label=\{sheet\.form\.protocol === "shadowsocks" \? t\("nodemgt\.col_network"\) : t\("nodemgt\.col_transport"\)\}/);
+});
+
+test("sing-box udp inbounds expose udp_fragment and send it on save", () => {
+  assert.match(source, /function inboundShowsUDPFragment\(protocol: string, transport: string, core: string\)/);
+  assert.match(source, /return inboundUsesUDP\(protocol, transport\) && core === "sing-box"/);
+  assert.match(source, /title=\{t\("nodemgt\.udp_fragment"\)\}/);
+  assert.match(source, /udp_fragment: inboundShowsUDPFragment\(form\.protocol, form\.transport, form\.core\) \? form\.udp_fragment === "true" : undefined/);
 });
 
 test("delete toasts as soon as the row is gone instead of waiting for the full reload", () => {
