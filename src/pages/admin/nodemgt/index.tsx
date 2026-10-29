@@ -340,6 +340,8 @@ const emptySubCfg = {
   sub_path: "",
   sub_public_host: "",
   sub_reuse_https: false,
+  sub_publish_name: false,
+  sub_publish_userinfo: false,
 };
 
 function settingOn(value: unknown) {
@@ -356,6 +358,8 @@ function subCfgFromSettings(settingRow?: Record<string, any> | null) {
     sub_path: str(settingRow?.sub_path, ""),
     sub_public_host: str(settingRow?.sub_public_host, ""),
     sub_reuse_https: reuse,
+    sub_publish_name: settingOn(settingRow?.sub_publish_name),
+    sub_publish_userinfo: settingOn(settingRow?.sub_publish_userinfo),
   };
 }
 
@@ -755,9 +759,19 @@ function subscriptionForm(row?: any): FormMap {
   };
 }
 
+function outboundTransportsFor(protocol: string) {
+  if (protocol === "shadowsocks") return transportsFor(protocol);
+  if (protocol === "anytls") return ["tcp"];
+  return [...OUTBOUND_TRANSPORTS];
+}
+
 function outboundForm(row?: any): FormMap {
   const protocol = str(row?.protocol, "vless");
   const core = str(row?.core, defaultCore(protocol));
+  let transport = str(row?.transport, defaultTransport(protocol));
+  if (protocol === "shadowsocks" && !transportsFor(protocol).includes(transport)) {
+    transport = defaultTransport(protocol);
+  }
   return {
     id: str(row?.id),
     name: str(row?.name),
@@ -771,7 +785,7 @@ function outboundForm(row?: any): FormMap {
     uuid: str(row?.uuid),
     flow: flowForCore(str(row?.flow), core),
     domain_strategy: str(row?.domain_strategy, "AsIs"),
-    transport: str(row?.transport, "tcp"),
+    transport,
     security: str(row?.security, "none"),
     sni: str(row?.sni),
     fingerprint: str(row?.fingerprint, DEFAULT_FINGERPRINT),
@@ -2572,7 +2586,7 @@ export default function PlusAdminPage() {
       password: parsed.password || "",
       username: parsed.username || "",
       flow: flowForCore(parsed.flow || "", defaultCore(protocol)),
-      transport: parsed.transport || "tcp",
+      transport: parsed.transport || defaultTransport(protocol),
       security: parsed.security || "none",
       sni: parsed.sni || "",
       fingerprint: parsed.fingerprint || DEFAULT_FINGERPRINT,
@@ -2704,6 +2718,24 @@ export default function PlusAdminPage() {
 
   const saveSubSettings = async (patch?: Partial<typeof subCfg>) => {
     const nextCfg = { ...subCfg, ...patch };
+    const metadataOnly =
+      patch != null &&
+      Object.keys(patch).every((key) => key === "sub_publish_name" || key === "sub_publish_userinfo");
+    if (metadataOnly) {
+      try {
+        const next = await call("admin:nodemgt.settings.set", {
+          sub_publish_name: Boolean(nextCfg.sub_publish_name),
+          sub_publish_userinfo: Boolean(nextCfg.sub_publish_userinfo),
+        });
+        setSettings(next);
+        setSubCfg(subCfgFromSettings(next as Record<string, any>));
+        toast.success(t("nodemgt.saved"));
+        return;
+      } catch (err) {
+        toast.error(nodemgtErrorMessage(err, t));
+        throw err;
+      }
+    }
     const reuse = Boolean(nextCfg.sub_reuse_https);
     if (reuse && (!str(settings.https_certificate_path) || !str(settings.https_private_key_path))) {
       toast.error(t("nodemgt.sub_reuse_https_missing"));
@@ -2716,6 +2748,8 @@ export default function PlusAdminPage() {
         sub_path: nextCfg.sub_path,
         sub_public_host: nextCfg.sub_public_host,
         sub_reuse_https: reuse,
+        sub_publish_name: Boolean(nextCfg.sub_publish_name),
+        sub_publish_userinfo: Boolean(nextCfg.sub_publish_userinfo),
       });
       setSettings(next);
       setSubCfg(subCfgFromSettings(next as Record<string, any>));
@@ -3315,6 +3349,22 @@ export default function PlusAdminPage() {
                   sub_reuse_https: next,
                   sub_public_host: subCfg.sub_public_host,
                 });
+              }}
+            />
+            <SettingCardSwitch
+              title={t("nodemgt.sub_publish_name")}
+              description={t("nodemgt.sub_publish_name_help")}
+              defaultChecked={Boolean(subCfg.sub_publish_name)}
+              onChange={async (next) => {
+                await saveSubSettings({ sub_publish_name: next });
+              }}
+            />
+            <SettingCardSwitch
+              title={t("nodemgt.sub_publish_userinfo")}
+              description={t("nodemgt.sub_publish_userinfo_help")}
+              defaultChecked={Boolean(subCfg.sub_publish_userinfo)}
+              onChange={async (next) => {
+                await saveSubSettings({ sub_publish_userinfo: next });
               }}
             />
           </Stack>
@@ -4718,14 +4768,14 @@ export default function PlusAdminPage() {
               <>
                 <TwoCol>
                   <SelectField
-                    label={t("nodemgt.col_transport")}
-                    value={sheet.form.transport || "tcp"}
+                    label={sheet.form.protocol === "shadowsocks" ? t("nodemgt.col_network") : t("nodemgt.col_transport")}
+                    value={sheet.form.transport || defaultTransport(sheet.form.protocol)}
                     onChange={(value) => {
                       const allowed = securitiesFor(sheet.form.protocol, value);
                       const security = allowed.includes(sheet.form.security) ? sheet.form.security : allowed[0];
                       setForm({ transport: value, security });
                     }}
-                    options={(sheet.form.protocol === "anytls" ? ["tcp"] : OUTBOUND_TRANSPORTS).map((value) => ({ value, label: t(`nodemgt.transport_${value}`) }))}
+                    options={outboundTransportsFor(sheet.form.protocol).map((value) => ({ value, label: t(transportLabelKey(value)) }))}
                   />
                   <SelectField
                     label={t("nodemgt.col_security")}

@@ -20,9 +20,11 @@ import {
   prefetchHTTPSSettings,
   classifyHTTPSError,
   reloadHTTPSCertificate,
+  reuseRootCertificate,
   updateHTTPSSettings,
   type HTTPSSettings,
   type HTTPSStatus,
+  type RootCertificateChoice,
 } from "@/lib/https";
 import {
   AppDialogContent,
@@ -164,6 +166,9 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
   const [loading, setLoading] = React.useState(() => snapshot === null);
   const [saving, setSaving] = React.useState(false);
   const [reloading, setReloading] = React.useState(false);
+  const [reusing, setReusing] = React.useState(false);
+  const [rootChoices, setRootChoices] = React.useState<RootCertificateChoice[] | null>(null);
+  const [pickedRootId, setPickedRootId] = React.useState("");
 
   const localizedError = React.useCallback((error: unknown) => {
     const key = classifyHTTPSError(error);
@@ -179,6 +184,10 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
       certificate_expired: t(
         "settings.reverse_proxy.https_certificate_expired",
         "证书已过期，请更换有效证书。",
+      ),
+      no_root_certificate: t(
+        "settings.reverse_proxy.https_no_root_certificate",
+        "签发管理中还没有已签发的根域名证书。",
       ),
       port_unavailable: t(
         "settings.reverse_proxy.https_port_unavailable",
@@ -278,6 +287,35 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
       toast.error(localizedError(error));
     } finally {
       setReloading(false);
+    }
+  };
+
+  const reuseRoot = async (id?: string) => {
+    setReusing(true);
+    try {
+      const payload = await reuseRootCertificate(id);
+      if (payload.need_pick) {
+        const certs = payload.certs || [];
+        setRootChoices(certs);
+        setPickedRootId(certs[0]?.id || "");
+        return;
+      }
+      setRootChoices(null);
+      setSettings(payload.settings);
+      setStatus(payload.status);
+      setPort(extractListenPort(payload.settings.https_listen));
+      toast.success(
+        t(
+          "settings.reverse_proxy.reuse_root_certificate_success",
+          "已复用根域名证书 {{domain}}",
+          { domain: payload.domain || "" },
+        ),
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error(localizedError(error));
+    } finally {
+      setReusing(false);
     }
   };
 
@@ -473,7 +511,7 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
               }))
             }
           />
-          <Flex>
+          <Flex gap="2" wrap="wrap">
             <Button
               variant="soft"
               disabled={reloading || !status.running}
@@ -481,6 +519,13 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
             >
               <RefreshCw size={16} className={reloading ? "animate-spin" : ""} />
               {t("settings.reverse_proxy.reload_certificate", "Reload certificate")}
+            </Button>
+            <Button
+              variant="soft"
+              disabled={reusing}
+              onClick={() => void reuseRoot()}
+            >
+              {t("settings.reverse_proxy.reuse_root_certificate", "Reuse root certificate")}
             </Button>
           </Flex>
         </Flex>
@@ -492,6 +537,48 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
           {t("common.save", "Save")}
         </Button>
       </Flex>
+      <Dialog.Root open={rootChoices !== null} onOpenChange={(next: boolean) => { if (!next) { setRootChoices(null); setPickedRootId(""); } }}>
+        <AppDialogContent
+          title={t("settings.reverse_proxy.reuse_root_pick_title", "选择要复用的根域名证书")}
+          description={t(
+            "settings.reverse_proxy.reuse_root_pick_help",
+            "签发管理中有多张已签发的根域名证书，请选择一张用于内置 HTTPS。",
+          )}
+        >
+          <Flex direction="column" gap="2" className="mt-3">
+            {(rootChoices || []).map((cert) => {
+              const selected = cert.id === pickedRootId;
+              const apex = String(cert.domain || "").replace(/^\*\./, "");
+              return (
+                <Button
+                  key={cert.id}
+                  variant={selected ? undefined : "soft"}
+                  disabled={reusing}
+                  onClick={() => setPickedRootId(cert.id)}
+                  className="!h-auto !justify-start !whitespace-normal py-2"
+                >
+                  <Flex direction="column" align="start" gap="1" className="min-w-0 text-left">
+                    <Text size="2" weight="medium" style={selected ? { color: "inherit" } : undefined}>
+                      {apex} / *.{apex}
+                    </Text>
+                    <Text size="1" color={selected ? undefined : "gray"} style={selected ? { color: "inherit" } : undefined}>
+                      {[cert.issuer || t("nodemgt.cert_source_acme", "Let's Encrypt"), date(cert.not_after || undefined)].filter(Boolean).join("  ·  ")}
+                    </Text>
+                  </Flex>
+                </Button>
+              );
+            })}
+            <Flex justify="end" gap="2" className="mt-2">
+              <Button variant="soft" disabled={reusing} onClick={() => { setRootChoices(null); setPickedRootId(""); }}>
+                {t("common.cancel", "Cancel")}
+              </Button>
+              <Button disabled={reusing || !pickedRootId} onClick={() => void reuseRoot(pickedRootId)}>
+                {t("settings.reverse_proxy.reuse_root_use", "使用这张证书")}
+              </Button>
+            </Flex>
+          </Flex>
+        </AppDialogContent>
+      </Dialog.Root>
     </Flex>
   );
 }

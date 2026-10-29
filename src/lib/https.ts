@@ -58,10 +58,27 @@ export type HTTPSErrorKind =
   | "certificate_invalid"
   | "certificate_expired"
   | "port_unavailable"
+  | "no_root_certificate"
   | "apply_failed";
+
+export type RootCertificateChoice = {
+  id: string;
+  domain: string;
+  issuer?: string;
+  not_after?: string | null;
+};
+
+export type ReuseRootCertificatePayload = HTTPSPayload & {
+  need_pick?: boolean;
+  certs?: RootCertificateChoice[];
+  domain?: string;
+};
 
 export function classifyHTTPSError(error: unknown): HTTPSErrorKind {
   const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (/no issued root certificate|root certificate is not issued/.test(message)) {
+    return "no_root_certificate";
+  }
   if (/let'?s encrypt|read certificate|read private key|no such file|cannot find|paths are required/.test(message)) {
     return "certificate_required";
   }
@@ -172,4 +189,25 @@ export async function reloadHTTPSCertificate(): Promise<HTTPSStatus> {
     httpsSettingsSnapshot = { ...httpsSettingsSnapshot, status: payload.status };
   }
   return payload.status;
+}
+
+export async function reuseRootCertificate(id?: string): Promise<ReuseRootCertificatePayload> {
+  const response = await fetch("/api/admin/settings/https/reuse-root", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(id ? { id } : {}),
+  });
+  const payload = await parseResponse<ReuseRootCertificatePayload>(response);
+  if (payload.need_pick) {
+    return payload;
+  }
+  return {
+    ...rememberHTTPSSettings({
+      settings: { ...defaultSettings, ...(payload.settings ?? {}) },
+      status: { ...defaultStatus, ...(payload.status ?? {}) },
+      http_origin: payload.http_origin,
+      https_origin: payload.https_origin,
+    }),
+    domain: payload.domain,
+  };
 }

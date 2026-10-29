@@ -126,6 +126,7 @@ type Snapshot = {
   host_rules?: HostRule[];
   keep_rules?: FirewallRule[];
   ssh_port?: string;
+  can_install_nftables?: boolean;
   error?: string;
 };
 
@@ -201,10 +202,23 @@ function hasDuplicateFirewallRule(rules: FirewallRule[], candidate: FirewallRule
   return persistableRules(rules).some((rule) => rule.id !== ignoreId && firewallRuleKey(rule) === key);
 }
 
+function firewallCommandError(raw: string, t: (key: string, options?: Record<string, unknown>) => string) {
+  if (/firewall command timed out|firewall command interrupted|exit status -1|context deadline exceeded|signal: killed/i.test(raw)) {
+    return t("firewall.errors.command_timeout");
+  }
+  return "";
+}
+
 function firewallErrorMessage(err: unknown, t: (key: string, options?: Record<string, unknown>) => string) {
   const raw = err instanceof Error ? err.message : String(err || "");
   if (/firewall rule already exists/i.test(raw)) return t("firewall.errors.duplicate");
-  return localizeRemoteError(raw, t) || t("common.error");
+  return firewallCommandError(raw, t) || localizeRemoteError(raw, t) || t("common.error");
+}
+
+function firewallDeliveryText(error: string | undefined, t: (key: string, options?: Record<string, unknown>) => string) {
+  const raw = String(error || "").trim();
+  if (!raw) return "";
+  return firewallCommandError(raw, t) || raw;
 }
 
 function replaceRulesAt(rules: FirewallRule[], existing: FirewallRule | undefined, expanded: FirewallRule[]) {
@@ -266,6 +280,7 @@ function FirewallContent() {
   const [authPassword, setAuthPassword] = useState("");
   const [authOtp, setAuthOtp] = useState("");
   const [pendingSave, setPendingSave] = useState<FirewallView["intent"] | null>(null);
+  const [pendingInstall, setPendingInstall] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [denyConfirm, setDenyConfirm] = useState(false);
   const [sshPortConfirm, setSshPortConfirm] = useState<string | null>(null);
@@ -389,7 +404,7 @@ function FirewallContent() {
       })
       .catch((err) => {
         if (cancelled) return;
-        toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+        toast.error(firewallErrorMessage(err, t));
         if (!getFirewallViewSnapshot(uuid)) setView(null);
       })
       .finally(() => {
@@ -443,10 +458,11 @@ function FirewallContent() {
       setAuthPassword("");
       setAuthOtp("");
       setPendingSave(null);
+      setPendingInstall(false);
       setAuthOpen(false);
       const failed = data.delivery_status === "failed" || data.delivery_status === "unsupported";
       if (failed) {
-        toast.error(data.delivery_error || t(`firewall.delivery_${data.delivery_status}`, { defaultValue: data.delivery_status }));
+        toast.error(firewallDeliveryText(data.delivery_error, t) || t(`firewall.delivery_${data.delivery_status}`, { defaultValue: data.delivery_status }));
       } else if (data.delivery_status === "sent" || data.delivery_status === "queued" || data.delivery_status === "pending") {
         toast.success(t("firewall.saved_pending"));
       } else {
@@ -467,7 +483,52 @@ function FirewallContent() {
       }
       return;
     }
+    setPendingInstall(false);
     setPendingSave(next);
+    setAuthOpen(true);
+  };
+
+  const installNftables = async (password = "", otp = "", usePasskey = false) => {
+    if (!uuid) return;
+    setBusy(true);
+    try {
+      const grant = await authorize(password, otp, usePasskey);
+      const data = await postJSON(`/api/admin/firewall/${encodeURIComponent(uuid)}/install`, "POST", {
+        uuid,
+        grant,
+        page_id: pageIDRef.current,
+      }) as FirewallView;
+      setView(data);
+      rememberFirewallView(uuid, data);
+      setAuthPassword("");
+      setAuthOtp("");
+      setPendingInstall(false);
+      setAuthOpen(false);
+      const failed = data.delivery_status === "failed" || data.delivery_status === "unsupported";
+      if (failed) {
+        toast.error(firewallDeliveryText(data.delivery_error, t) || t(`firewall.delivery_${data.delivery_status}`, { defaultValue: data.delivery_status }));
+      } else if (data.delivery_status === "sent" || data.delivery_status === "queued" || data.delivery_status === "pending") {
+        toast.success(t("firewall.install_nftables_pending"));
+      } else {
+        toast.success(t("firewall.installed_nftables"));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const queueInstall = async () => {
+    if (!uuid) return;
+    if (isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+      try {
+        await installNftables();
+      } catch (err) {
+        toast.error(firewallErrorMessage(err, t));
+      }
+      return;
+    }
+    setPendingSave(null);
+    setPendingInstall(true);
     setAuthOpen(true);
   };
 
@@ -487,13 +548,20 @@ function FirewallContent() {
         : false;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rules.filter((rule) => {
-      if (rule.stack !== stack) return false;
-      if (!q) return true;
-      return [rule.action, rule.protocol, rule.port, rule.source, rule.comment, isKeepRule(rule) ? t("firewall.origin_keep") : ""].some((value) =>
-        String(value || "").toLowerCase().includes(q),
-      );
-    });
+    return rules
+      .filter((rule) => {
+        if (rule.stack !== stack) return false;
+        if (!q) return true;
+        return [rule.action, rule.protocol, rule.port, rule.source, rule.comment, isKeepRule(rule) ? t("firewall.origin_keep") : ""].some((value) =>
+          String(value || "").toLowerCase().includes(q),
+        );
+      })
+      .sort((a, b) => {
+        const pa = Number(a.priority || 0);
+        const pb = Number(b.priority || 0);
+        if (pa !== pb) return pa - pb;
+        return String(a.id || "").localeCompare(String(b.id || ""));
+      });
   }, [query, rules, stack, t]);
   const pager = useAdminPagination(filtered);
   useEffect(() => {
@@ -521,7 +589,7 @@ function FirewallContent() {
         toast.message(t("firewall.scan_offline"));
       }
     } catch (err) {
-      toast.error(localizeRemoteError(err instanceof Error ? err.message : "", t) || t("common.error"));
+      toast.error(firewallErrorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -648,7 +716,7 @@ function FirewallContent() {
       if (data.disable_original === "timeout") {
         toast.message(t("firewall.disable_original_timeout"));
       } else if (data.disable_original === "failed") {
-        toast.message(data.disable_original_error || t("firewall.disable_original_failed"));
+        toast.message(firewallDeliveryText(data.disable_original_error, t) || t("firewall.disable_original_failed"));
       } else {
         toast.success(t("firewall.adopted"));
       }
@@ -807,9 +875,40 @@ function FirewallContent() {
           <Callout.Text>{t("firewall.remote_off")}</Callout.Text>
         </Callout.Root>
       ) : null}
+      {view?.snapshot?.can_install_nftables || view?.snapshot?.backend === "none" ? (
+        <Callout.Root
+          color="orange"
+          role="status"
+          className="!items-center [&_.MuiAlert-icon]:!py-0 [&_.MuiAlert-message]:!flex [&_.MuiAlert-message]:items-center [&_.MuiAlert-message]:!py-0 [&_.MuiAlert-message]:w-full [&_.MuiAlert-message]:min-w-0"
+        >
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{ width: "100%", minHeight: 36.5, alignItems: "center" }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center" }}>
+              <Callout.Text>
+                {view?.snapshot?.can_install_nftables
+                  ? t("firewall.install_nftables_help")
+                  : t("firewall.install_nftables_missing")}
+              </Callout.Text>
+            </Box>
+            {view?.snapshot?.can_install_nftables ? (
+              <MuiButton
+                variant="contained"
+                disabled={busy || readOnly}
+                onClick={() => void queueInstall()}
+                sx={{ ml: "auto", flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                {t("firewall.install_nftables")}
+              </MuiButton>
+            ) : null}
+          </Stack>
+        </Callout.Root>
+      ) : null}
       {view?.delivery_error ? (
         <Callout.Root color="red" role="alert">
-          <Callout.Text>{view.delivery_error}</Callout.Text>
+          <Callout.Text>{firewallDeliveryText(view.delivery_error, t)}</Callout.Text>
         </Callout.Root>
       ) : null}
       {detailPending || !view ? (
@@ -911,6 +1010,7 @@ function FirewallContent() {
                       title={`${t(`firewall.action_${rule.action}`)} ${rule.protocol.toUpperCase()} / ${rule.port}`}
                       cells={[
                         [t("firewall.source"), rule.source || t("firewall.any")],
+                        [t("firewall.priority"), String(rule.priority)],
                         [t("firewall.comment"), rule.comment || "—"],
                         ...(kept ? [[t("firewall.origin_keep"), t("firewall.view_only")] as [string, string]] : []),
                       ]}
@@ -1164,7 +1264,7 @@ function FirewallContent() {
           </Flex>
         </AppDialogContent>
       </Dialog.Root>
-      <Dialog.Root open={authOpen} onOpenChange={(next: boolean) => { if (!next) { setAuthOpen(false); setPendingSave(null); } }}>
+      <Dialog.Root open={authOpen} onOpenChange={(next: boolean) => { if (!next) { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); } }}>
         <AppDialogContent title={t("firewall.auth_title")} description={t("firewall.auth_help")}>
           <MuiTextField
             size="small"
@@ -1180,24 +1280,38 @@ function FirewallContent() {
             }}
           />
           <Flex justify="end" gap="2" className="mt-4">
-            <MuiButton onClick={() => { setAuthOpen(false); setPendingSave(null); }}>{t("common.cancel")}</MuiButton>
+            <MuiButton onClick={() => { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); }}>{t("common.cancel")}</MuiButton>
             {passkeyAvailable ? (
               <MuiButton
                 variant="outlined"
-                disabled={busy || !pendingSave}
-                onClick={() => pendingSave && void saveIntent(pendingSave, "", "", true).catch((err) => {
-                  toast.error(firewallErrorMessage(err, t));
-                })}
+                disabled={busy || (!pendingSave && !pendingInstall)}
+                onClick={() => {
+                  const run = pendingInstall
+                    ? installNftables("", "", true)
+                    : pendingSave
+                      ? saveIntent(pendingSave, "", "", true)
+                      : Promise.resolve();
+                  void run.catch((err) => {
+                    toast.error(firewallErrorMessage(err, t));
+                  });
+                }}
               >
                 {t("login.passkey")}
               </MuiButton>
             ) : null}
             <MuiButton
               variant="contained"
-              disabled={busy || !pendingSave || (twoFaEnabled ? !authOtp.trim() : !authPassword.trim())}
-              onClick={() => pendingSave && void saveIntent(pendingSave, authPassword, authOtp, false).catch((err) => {
-                toast.error(firewallErrorMessage(err, t));
-              })}
+              disabled={busy || (!pendingSave && !pendingInstall) || (twoFaEnabled ? !authOtp.trim() : !authPassword.trim())}
+              onClick={() => {
+                const run = pendingInstall
+                  ? installNftables(authPassword, authOtp, false)
+                  : pendingSave
+                    ? saveIntent(pendingSave, authPassword, authOtp, false)
+                    : Promise.resolve();
+                void run.catch((err) => {
+                  toast.error(firewallErrorMessage(err, t));
+                });
+              }}
             >
               {t("scheduled_exec.confirm")}
             </MuiButton>

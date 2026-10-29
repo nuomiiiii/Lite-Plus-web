@@ -95,6 +95,9 @@ test("shadowsocks inbound network is tcp,udp / tcp / udp", () => {
   assert.match(source, /if \(protocol === "shadowsocks"\) return \["tcp,udp", "tcp", "udp"\]/);
   assert.match(source, /if \(protocol === "shadowsocks"\) return "tcp,udp"/);
   assert.match(source, /label=\{sheet\.form\.protocol === "shadowsocks" \? t\("nodemgt\.col_network"\) : t\("nodemgt\.col_transport"\)\}/);
+  assert.match(source, /function outboundTransportsFor\(protocol: string\)/);
+  assert.match(source, /if \(protocol === "shadowsocks"\) return transportsFor\(protocol\)/);
+  assert.match(source, /options=\{outboundTransportsFor\(sheet\.form\.protocol\)\.map/);
 });
 
 test("sing-box udp inbounds expose udp_fragment and send it on save", () => {

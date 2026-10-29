@@ -13,6 +13,8 @@ test("firewall policy saves go through the grant dialog", () => {
   assert.match(source, /const queueSave = async/);
   assert.match(source, /firewall\.auth_title/);
   assert.match(source, /view\?\.delivery_error/);
+  assert.match(source, /firewallDeliveryText/);
+  assert.match(source, /firewall\.errors\.command_timeout/);
   assert.match(source, /firewall\.scan_offline/);
   assert.match(source, /disabled=\{busy \|\| readOnly\}/);
 });

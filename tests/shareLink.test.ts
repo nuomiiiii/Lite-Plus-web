@@ -39,6 +39,7 @@ test("parses vmess and shadowsocks links", () => {
   assert.equal(ss?.dest_port, "8388");
   assert.equal(ss?.ss_method, "aes-128-gcm");
   assert.equal(ss?.password, "secret");
+  assert.equal(ss?.transport, "tcp,udp");
 
   const ss2022 = parseShareLink(
     "ss://2022-blake3-aes-128-gcm:AAAAAAAAAAAAAAAAAAAAAA==%3AZy%2BxWvU%2FtSrQpOnMlKjIhg==@ss.example.com:8388#US_SS2022",

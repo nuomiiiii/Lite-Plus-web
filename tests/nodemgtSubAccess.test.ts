@@ -13,6 +13,20 @@ test("empty subscription listen port stays blank instead of showing 0", () => {
   assert.doesNotMatch(zh, /0 表示不单独开端口/);
 });
 
+test("subscription metadata switches default off and save independently", () => {
+  assert.match(page, /sub_publish_name: false/);
+  assert.match(page, /sub_publish_userinfo: false/);
+  assert.match(page, /sub_publish_name: settingOn\(settingRow\?\.sub_publish_name\)/);
+  assert.match(page, /sub_publish_userinfo: settingOn\(settingRow\?\.sub_publish_userinfo\)/);
+  assert.match(page, /title=\{t\("nodemgt\.sub_publish_name"\)\}/);
+  assert.match(page, /title=\{t\("nodemgt\.sub_publish_userinfo"\)\}/);
+  assert.match(page, /saveSubSettings\(\{ sub_publish_name: next \}\)/);
+  assert.match(page, /saveSubSettings\(\{ sub_publish_userinfo: next \}\)/);
+  assert.match(page, /key === "sub_publish_name" \|\| key === "sub_publish_userinfo"/);
+  assert.match(zh, /"sub_publish_name": "下发订阅名称"/);
+  assert.match(zh, /"sub_publish_userinfo": "下发流量和到期信息"/);
+});
+
 test("empty subscription public host stays blank instead of showing a sample address", () => {
   const start = page.indexOf('label={t("nodemgt.sub_public_host")}');
   const fieldBlock = page.slice(start, page.indexOf("/>", start));

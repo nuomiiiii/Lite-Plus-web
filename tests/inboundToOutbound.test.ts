@@ -40,8 +40,8 @@ test("uses node IP, listen address, or custom share host", () => {
   assert.equal(inboundSharePort({ port: 443 }), "443");
 });
 
-test("shadowsocks outbound copy keeps tcp transport", () => {
-  const got = outboundFieldsFromInbound(
+test("shadowsocks outbound copy keeps inbound network", () => {
+  const both = outboundFieldsFromInbound(
     {
       protocol: "shadowsocks",
       transport: "tcp,udp",
@@ -52,9 +52,15 @@ test("shadowsocks outbound copy keeps tcp transport", () => {
     },
     { ipv4: "ignored" },
   );
-  assert.equal(got.protocol, "shadowsocks");
-  assert.equal(got.transport, "tcp");
-  assert.equal(got.ss_method, "aes-128-gcm");
+  assert.equal(both.protocol, "shadowsocks");
+  assert.equal(both.transport, "tcp,udp");
+  assert.equal(both.ss_method, "aes-128-gcm");
+
+  const udp = outboundFieldsFromInbound({ protocol: "shadowsocks", ss_network: "udp", port: 8388 }, null);
+  assert.equal(udp.transport, "udp");
+
+  const tcp = outboundFieldsFromInbound({ protocol: "shadowsocks", transport: "tcp", port: 8388 }, null);
+  assert.equal(tcp.transport, "tcp");
 });
 
 test("copies REALITY inbound fields into an outbound", () => {
@@ -216,6 +222,8 @@ test("admin RPC errors map to nodemgt i18n keys instead of raw English", () => {
     ["RPC Error -32603: 站点未启用远程管理", "inbound", "nodemgt.firewall_site_off"],
     ["RPC Error -32603: 当前 Agent 不支持防火墙，请升级", "inbound", "nodemgt.firewall_agent_old"],
     ["RPC Error -32603: 节点未启用远程控制", "inbound", "nodemgt.firewall_remote_off"],
+    ["RPC Error -32603: exit status -1", "inbound", "nodemgt.firewall_apply_timeout"],
+    ["firewall command timed out", "inbound", "nodemgt.firewall_apply_timeout"],
   ];
   for (const [raw, kind, key] of cases) {
     assert.equal(nodemgtRpcErrorKey(raw, kind), key, raw);

@@ -81,6 +81,17 @@ export function inboundSharePort(inbound: any) {
   return port > 0 ? String(port) : "";
 }
 
+function shadowsocksCopyNetwork(inbound: any) {
+  const raw = String(inbound?.ss_network || inbound?.transport || "tcp,udp")
+    .trim()
+    .toLowerCase()
+    .replace(/\s/g, "")
+    .replace(/[\/+]/g, ",");
+  if (raw === "udp") return "udp";
+  if (raw === "tcp") return "tcp";
+  return "tcp,udp";
+}
+
 export function outboundFieldsFromInbound(
   inbound: any,
   node?: { ipv4?: string; ipv6?: string } | null,
@@ -88,7 +99,7 @@ export function outboundFieldsFromInbound(
 ) {
   const protocol = String(inbound?.protocol || "vless");
   const security = String(inbound?.security || "none");
-  const transport = protocol === "shadowsocks" ? "tcp" : String(inbound?.transport || "tcp");
+  const transport = protocol === "shadowsocks" ? shadowsocksCopyNetwork(inbound) : String(inbound?.transport || "tcp");
   const address = inboundShareHost(inbound, node, cert);
   const dest_port = inboundSharePort(inbound);
   const sni = shareSNI(inbound, security);
@@ -292,6 +303,7 @@ const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
   [/站点未启用远程管理/i, "nodemgt.firewall_site_off"],
   [/不支持防火墙|Agent 版本过旧/i, "nodemgt.firewall_agent_old"],
   [/节点未启用远程控制/i, "nodemgt.firewall_remote_off"],
+  [/exit status -1|firewall command timed out|firewall command interrupted|context deadline exceeded|signal: killed/i, "nodemgt.firewall_apply_timeout"],
   [/RPC Error|admin:nodemgt\./i, "nodemgt.request_failed"],
 ];
 

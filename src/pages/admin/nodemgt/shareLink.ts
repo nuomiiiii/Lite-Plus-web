@@ -179,7 +179,7 @@ function parseShadowsocks(raw: string): ShareLinkFields | null {
     dest_port: hostPort.slice(colon + 1),
     password,
     ss_method: method,
-    transport: "tcp",
+    transport: "tcp,udp",
     security: "none",
   };
 }
