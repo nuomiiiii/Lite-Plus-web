@@ -1,8 +1,40 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 const source = readFileSync(new URL("../src/pages/admin/nodemgt/index.tsx", import.meta.url), "utf8");
+
+const coreDefaults = source.slice(source.indexOf("function defaultCore("), source.indexOf("function displayCore("));
+const protocolHandlers = [...source.matchAll(/value=\{sheet\.form\.protocol\}\s+onChange=\{\(value\) => \{([\s\S]*?)\n\s+\}\}/g)];
+assert.equal(protocolHandlers.length, 2);
+
+for (const [index, handler] of protocolHandlers.entries()) {
+  test(`${index === 0 ? "inbound" : "outbound"} protocol changes keep compatible cores and replace unsupported ones`, () => {
+    const script = stripTypeScriptTypes(`${source.match(/^const CORES = .*$/m)![0]}\n${coreDefaults}\n${handler[1]}`);
+    for (const [protocol, core, expected] of [
+      ["vless", "sing-box", "sing-box"],
+      ["vmess", "sing-box", "sing-box"],
+      ["trojan", "sing-box", "sing-box"],
+      ["vless", "xray", "xray"],
+      ["anytls", "xray", "sing-box"],
+      ["hysteria2", "xray", "sing-box"],
+      ["tuic", "xray", "sing-box"],
+    ]) {
+      let patch: Record<string, string> = {};
+      runInNewContext(script, {
+        value: protocol,
+        sheet: { form: { core } },
+        setForm: (value: Record<string, string>) => { patch = value; },
+        defaultInboundFlow: () => "",
+        securitiesFor: () => ["none", "tls", "reality"],
+      });
+      assert.equal(patch.protocol, protocol);
+      assert.equal(patch.core, expected, `${core} -> ${protocol}`);
+    }
+  });
+}
 
 test("existing inbound keeps empty flow instead of filling vision", () => {
   assert.match(source, /flow: flowForCore\(str\(row\?\.flow, existing \? "" : defaultInboundFlow\(protocol, transport, security, core\)\), core\)/);

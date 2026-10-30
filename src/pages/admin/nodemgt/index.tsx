@@ -4086,7 +4086,7 @@ export default function PlusAdminPage() {
                     onChange={(value) => {
                       const transport = defaultTransport(value);
                       const security = defaultSecurity(value);
-                      const core = defaultCore(value);
+                      const core = coresFor(value).some((core) => core === sheet.form.core) ? sheet.form.core : defaultCore(value);
                       setForm({
                         protocol: value,
                         core,
@@ -4695,7 +4695,7 @@ export default function PlusAdminPage() {
                   const security = allowed.includes(sheet.form.security) ? sheet.form.security : allowed[0];
                   setForm({
                     protocol: value,
-                    core: defaultCore(value),
+                    core: coresFor(value).some((core) => core === sheet.form.core) ? sheet.form.core : defaultCore(value),
                     transport,
                     security,
                   });
