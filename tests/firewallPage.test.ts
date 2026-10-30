@@ -126,6 +126,11 @@ test("firewall rules table uses shared admin pagination", () => {
   assert.match(source, /showWhenEmpty/);
 });
 
+test("firewall delete on one stack keeps the other stack rule", () => {
+  assert.match(source, /persistableRules\(rules\)\.filter\(\(item\) => item\.id !== rule\.id\)/);
+  assert.match(source, /if \(rule\.stack !== stack\) return false/);
+});
+
 test("firewall keep holes stay visible and are stripped on save", () => {
   assert.match(source, /function isKeepRule/);
   assert.match(source, /function persistableRules/);
