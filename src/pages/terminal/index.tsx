@@ -58,6 +58,7 @@ import Loading from "@/components/loading";
 import { mergeLatestStatus } from "@/utils/liveData";
 import { resolveAdminAuthView } from "@/utils/adminAuth";
 import RemoteNodePicker from "@/components/remote/RemoteNodePicker";
+import { orderRemoteNodes } from "@/utils/remoteNodePicker";
 import Flag from "@/components/Flag";
 import LiteBrand from "@/components/LiteBrand";
 import { AppearanceSegment, ThemeMenu } from "@/components/admin/shell/ChromeActions";
@@ -718,11 +719,11 @@ function TerminalWorkspaceInner() {
     }
     setSessionSheetOpen(false);
     if (!compact) setPickerSide(side);
-    setPickerUUID(
-      nodes.find((node) => online.has(node.uuid))?.uuid ||
-      nodes[0]?.uuid ||
-      "",
-    );
+    const orderedNodes = orderRemoteNodes(nodes);
+    setPickerUUID((current) => {
+      if (current && orderedNodes.some((node) => node.uuid === current)) return current;
+      return orderedNodes.find((node) => online.has(node.uuid))?.uuid || orderedNodes[0]?.uuid || "";
+    });
     setPickerOpen(true);
   };
 

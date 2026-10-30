@@ -7,6 +7,7 @@ import {
   filterRemoteNodes,
   nextRemotePickerPageSize,
   orderRemoteNodes,
+  pageForSelectedRemoteNode,
   paginateRemoteNodes,
   remoteNodeSearchText,
   type RemoteNodePickerItem,
@@ -74,6 +75,24 @@ test("normalizes missing addresses before rendering their empty state", () => {
   assert.equal(displayRemoteAddress(undefined), "");
 });
 
+test("opens the picker on the page that still holds the last selected server", () => {
+  const manyNodes = Array.from({ length: 14 }, (_, index) => ({
+    uuid: `node-${index + 1}`,
+    name: `Node ${index + 1}`,
+  }));
+
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "node-7", 6), 2);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "node-1", 6), 1);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "missing", 6), 1);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "", 6), 1);
+
+  const pickerSource = readFileSync(new URL("../src/components/remote/RemoteNodePicker.tsx", import.meta.url), "utf8");
+  const terminalSource = readFileSync(new URL("../src/pages/terminal/index.tsx", import.meta.url), "utf8");
+  assert.match(pickerSource, /pageForSelectedRemoteNode\(filteredNodes, selectedUUID, effectivePageSize\)/);
+  assert.match(terminalSource, /if \(current && orderedNodes\.some\(\(node\) => node\.uuid === current\)\) return current;/);
+  assert.doesNotMatch(terminalSource, /nodes\.find\(\(node\) => online\.has\(node\.uuid\)\)\?\.uuid \|\s*nodes\[0\]\?\.uuid/);
+});
+
 test("uses independent page sizes and clamps stale page numbers", () => {
   const manyNodes = Array.from({ length: 35 }, (_, index) => ({
     uuid: `node-${index + 1}`,
@@ -112,7 +131,9 @@ test("keeps the terminal portal aligned with the dashboard visual language", () 
   assert.match(pickerSource, /\["IPv4", ipv4\][\s\S]*\["IPv6", ipv6\]/);
   assert.equal(pickerSource.includes('t("terminal.copy_address"'), false);
   assert.equal(pickerSource.includes('role="button"'), true);
-  assert.equal(pickerSource.includes("if (knownOnline) onSelect(node)"), true);
+  assert.equal(pickerSource.includes("allowOffline"), true);
+  assert.equal(pickerSource.includes("if (selectable) onSelect(node)"), true);
+  assert.equal(pickerSource.includes("if (knownOnline) onSelect(node)"), false);
   assert.equal(pickerSource.includes('event.key !== "Enter" && event.key !== " "'), true);
   assert.equal(terminalStyles.includes("width: min(864px, calc(100vw - 48px))"), true);
   assert.equal(terminalStyles.includes("width: min(94vw, 1040px)"), false);
