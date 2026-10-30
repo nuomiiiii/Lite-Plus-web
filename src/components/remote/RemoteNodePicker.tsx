@@ -29,6 +29,7 @@ import {
   filterRemoteNodes,
   orderRemoteNodes,
   nextRemotePickerPageSize,
+  pageForSelectedRemoteNode,
   paginateRemoteNodes,
   type RemoteNodePickerItem,
   type RemoteNodeStatusFilter,
@@ -68,7 +69,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
   const compact = useMediaQuery(REMOTE_COMPACT_QUERY, { noSsr: true });
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<RemoteNodeStatusFilter>("all");
-  const [page, setPage] = useState(1);
+  const [pageOverride, setPageOverride] = useState<number | null>(null);
   const [responsivePageSize, setResponsivePageSize] = useState(pageSize);
   const pageSizeRef = useRef(pageSize);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -93,6 +94,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
   const noMatches = nodes.length > 0 && filteredNodes.length === 0;
   const hasResults = filteredNodes.length > 0;
   const effectivePageSize = responsivePageSize;
+  const page = pageOverride ?? pageForSelectedRemoteNode(filteredNodes, selectedUUID, effectivePageSize);
   const nodePage = useMemo(
     () => paginateRemoteNodes(filteredNodes, page, effectivePageSize),
     [effectivePageSize, filteredNodes, page],
@@ -157,7 +159,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
           autoComplete="off"
           onChange={(event) => {
             setQuery(event.target.value);
-            setPage(1);
+            setPageOverride(event.target.value.trim() ? 1 : null);
           }}
           sx={{
             ...ADMIN_LIST_SEARCH_SX,
@@ -180,7 +182,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
                     aria-label={t("terminal.clear_search")}
                     onClick={() => {
                       setQuery("");
-                      setPage(1);
+                      setPageOverride(null);
                       searchRef.current?.focus();
                     }}
                   >
@@ -198,7 +200,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
           value={status}
           onValueChange={(value) => {
             setStatus(value);
-            setPage(1);
+            setPageOverride(null);
           }}
         />
       </Stack>
@@ -405,7 +407,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
             disabled={currentPage === 1}
             title={t("terminal.previous_page")}
             aria-label={t("terminal.previous_page")}
-            onClick={() => setPage((value) => Math.max(1, value - 1))}
+            onClick={() => setPageOverride(Math.max(1, currentPage - 1))}
           >
             <ChevronLeft size={16} />
           </IconButton>
@@ -417,7 +419,7 @@ export default function RemoteNodePicker<T extends RemoteNodePickerItem>({
             disabled={currentPage === totalPages}
             title={t("terminal.next_page")}
             aria-label={t("terminal.next_page")}
-            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+            onClick={() => setPageOverride(Math.min(totalPages, currentPage + 1))}
           >
             <ChevronRight size={16} />
           </IconButton>

@@ -7,6 +7,7 @@ import {
   filterRemoteNodes,
   nextRemotePickerPageSize,
   orderRemoteNodes,
+  pageForSelectedRemoteNode,
   paginateRemoteNodes,
   remoteNodeSearchText,
   type RemoteNodePickerItem,
@@ -72,6 +73,24 @@ test("normalizes missing addresses before rendering their empty state", () => {
   assert.equal(displayRemoteAddress(" 2001:db8::1 "), "2001:db8::1");
   assert.equal(displayRemoteAddress(""), "");
   assert.equal(displayRemoteAddress(undefined), "");
+});
+
+test("opens the picker on the page that still holds the last selected server", () => {
+  const manyNodes = Array.from({ length: 14 }, (_, index) => ({
+    uuid: `node-${index + 1}`,
+    name: `Node ${index + 1}`,
+  }));
+
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "node-7", 6), 2);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "node-1", 6), 1);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "missing", 6), 1);
+  assert.equal(pageForSelectedRemoteNode(manyNodes, "", 6), 1);
+
+  const pickerSource = readFileSync(new URL("../src/components/remote/RemoteNodePicker.tsx", import.meta.url), "utf8");
+  const terminalSource = readFileSync(new URL("../src/pages/terminal/index.tsx", import.meta.url), "utf8");
+  assert.match(pickerSource, /pageForSelectedRemoteNode\(filteredNodes, selectedUUID, effectivePageSize\)/);
+  assert.match(terminalSource, /if \(current && orderedNodes\.some\(\(node\) => node\.uuid === current\)\) return current;/);
+  assert.doesNotMatch(terminalSource, /nodes\.find\(\(node\) => online\.has\(node\.uuid\)\)\?\.uuid \|\s*nodes\[0\]\?\.uuid/);
 });
 
 test("uses independent page sizes and clamps stale page numbers", () => {

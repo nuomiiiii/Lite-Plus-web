@@ -86,6 +86,17 @@ export function paginateRemoteNodes<T>(
   };
 }
 
+export function pageForSelectedRemoteNode<T extends { uuid: string }>(
+  nodes: readonly T[],
+  uuid: string | undefined,
+  pageSize: number,
+) {
+  if (!uuid) return 1;
+  const index = nodes.findIndex((node) => node.uuid === uuid);
+  if (index < 0) return 1;
+  return Math.floor(index / Math.max(1, Math.floor(pageSize))) + 1;
+}
+
 export function displayRemoteAddress(value: string | undefined): string {
   return value?.trim() || "";
 }
