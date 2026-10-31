@@ -300,6 +300,8 @@ const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
   [/extra_bytes/i, "nodemgt.invalid_extra_bytes"],
   [/nodemgt: not found/i, "nodemgt.not_found"],
   [/nodemgt: invalid\b|nodemgt: conflict\b/i, "nodemgt.invalid_input"],
+  [/host has no IPv6/i, "nodemgt.inbound_stack_no_v6"],
+  [/host has no IPv4/i, "nodemgt.inbound_stack_no_v4"],
   [/站点未启用远程管理/i, "nodemgt.firewall_site_off"],
   [/不支持防火墙|Agent 版本过旧/i, "nodemgt.firewall_agent_old"],
   [/节点未启用远程控制/i, "nodemgt.firewall_remote_off"],

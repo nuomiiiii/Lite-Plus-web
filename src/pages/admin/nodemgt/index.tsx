@@ -149,6 +149,17 @@ const PATH_TAB: Record<string, TabKey> = Object.fromEntries(
 
 const PROTOCOLS = ["vless", "vmess", "trojan", "shadowsocks", "http", "hysteria2", "tuic", "anytls"] as const;
 const STACKS = ["ipv4", "ipv6", "dual"] as const;
+
+function inboundStacksForNode(node?: { ipv4?: string; ipv6?: string } | null) {
+  const v4 = Boolean(String(node?.ipv4 || "").trim());
+  const v6 = Boolean(String(node?.ipv6 || "").trim());
+  if (!v4 && !v6) return [...STACKS];
+  return STACKS.filter((value) => {
+    if (value === "ipv4") return v4;
+    if (value === "ipv6") return v6;
+    return v4 && v6;
+  });
+}
 const DIAL_STACKS = ["dual", "ipv4", "ipv6", "prefer_ipv4", "prefer_ipv6"] as const;
 const FLOWS = ["", "xtls-rprx-vision", "xtls-rprx-vision-udp443"] as const;
 const CORES = ["xray", "sing-box"] as const;
@@ -2536,6 +2547,11 @@ export default function PlusAdminPage() {
     { value: "block", label: t("nodemgt.builtin_block") },
   ];
   const sheetNode = sheet?.form.node_uuid || "";
+  const inboundStackOptions = inboundStacksForNode(inboundNodeOf(sheetNode));
+  const inboundStackValue =
+    (inboundStackOptions.includes(sheet?.form.stack as (typeof STACKS)[number])
+      ? sheet?.form.stack
+      : inboundStackOptions[0] || sheet?.form.stack) || "";
   const nodeInboundOptions = inboundOptions.filter((item) => {
     const row = inbounds.find((inbound) => inbound.id === item.value);
     return !sheetNode || row?.node_uuid === sheetNode;
@@ -2803,7 +2819,9 @@ export default function PlusAdminPage() {
             return;
           }
         }
-        const body: Record<string, unknown> = inboundUpsertBody(form);
+        const stacks = inboundStacksForNode(inboundNodeOf(form.node_uuid));
+        const stack = stacks.includes(form.stack as (typeof STACKS)[number]) ? form.stack : stacks[0] || form.stack;
+        const body: Record<string, unknown> = inboundUpsertBody({ ...form, stack });
         if (needsGrant) {
           body.grant = firewallGrant || await authorizeFirewall("", "", false);
           body.page_id = pageIDRef.current;
@@ -4430,7 +4448,12 @@ export default function PlusAdminPage() {
               </>
             ) : null}
             {sheetTab === "advanced" ? (
-              <SelectField label={t("nodemgt.col_stack")} value={sheet.form.stack} onChange={(value) => setForm({ stack: value })} options={STACKS.map((value) => ({ value, label: t(`nodemgt.stack_${value}`) }))} />
+              <SelectField
+                label={t("nodemgt.col_stack")}
+                value={inboundStackValue}
+                onChange={(value) => setForm({ stack: value })}
+                options={inboundStackOptions.map((value) => ({ value, label: t(`nodemgt.stack_${value}`) }))}
+              />
             ) : null}
           </SheetPane>
         ) : null}

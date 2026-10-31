@@ -120,9 +120,6 @@ type Snapshot = {
   default_deny_block_reason?: string;
   block_ping_v4?: boolean;
   block_ping_v6?: boolean;
-  has_stacks?: boolean;
-  stack_v4?: boolean;
-  stack_v6?: boolean;
   host_rules?: HostRule[];
   keep_rules?: FirewallRule[];
   ssh_port?: string;
@@ -232,6 +229,36 @@ function keepOmitKey(rule: { comment?: string }) {
   return String(rule.comment || "").trim().toLowerCase();
 }
 
+function usableReportedIP(raw?: string) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  const lower = value.toLowerCase();
+  if (value === "0.0.0.0" || lower === "::" || lower === "::1") return "";
+  if (value.startsWith("127.") || value.startsWith("169.254.")) return "";
+  if (lower.startsWith("fe80:")) return "";
+  return value;
+}
+
+function reportedStacks(node?: { ipv4?: string; ipv6?: string } | null) {
+  let v4 = false;
+  let v6 = false;
+  for (const raw of [node?.ipv4, node?.ipv6]) {
+    const value = usableReportedIP(raw);
+    if (!value) continue;
+    if (value.includes(":") && !value.includes(".")) v6 = true;
+    else v4 = true;
+  }
+  return { v4, v6 };
+}
+
+function activeFirewallStack(preferred: "v4" | "v6", stacks: { v4: boolean; v6: boolean }): "v4" | "v6" {
+  if (preferred === "v6" && stacks.v6) return "v6";
+  if (preferred === "v4" && stacks.v4) return "v4";
+  if (stacks.v4) return "v4";
+  if (stacks.v6) return "v6";
+  return preferred;
+}
+
 function protocolsOf(protocol: FirewallProtocol): Array<"tcp" | "udp"> {
   return protocol === "both" ? ["tcp", "udp"] : [protocol];
 }
@@ -248,7 +275,7 @@ export default FirewallPage;
 
 function FirewallContent() {
   const { t } = useTranslation();
-  const { nodeDetail, isLoading, error } = useNodeDetails();
+  const { nodeDetail, isLoading, error, refresh } = useNodeDetails();
   const { liveData, available } = useAdminNodeLiveData();
   const onlineSet = useMemo(
     () => new Set(liveData?.data.online ?? []),
@@ -257,12 +284,18 @@ function FirewallContent() {
   const { account } = useAccount();
   const [params, setParams] = useSearchParams();
   const uuid = params.get("uuid")?.trim() || "";
+  const selectedNode = useMemo(
+    () => nodeDetail.find((node) => node.uuid === uuid) || null,
+    [nodeDetail, uuid],
+  );
   const mobile = useIsMobile();
   const [view, setView] = useState<FirewallView | null>(() =>
     uuid ? getFirewallViewSnapshot<FirewallView>(uuid) : null,
   );
   const [loadingView, setLoadingView] = useState(() => Boolean(uuid && !getFirewallViewSnapshot(uuid)));
   const [stack, setStack] = useState<"v4" | "v6">("v4");
+  const stacksOn = useMemo(() => reportedStacks(selectedNode), [selectedNode]);
+  const stackView = activeFirewallStack(stack, stacksOn);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<FirewallRule | "new" | null>(null);
   const [deleting, setDeleting] = useState<FirewallRule | null>(null);
@@ -363,6 +396,17 @@ function FirewallContent() {
   };
 
   useEffect(() => {
+    if (stack !== stackView) setStack(stackView);
+  }, [stack, stackView]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      refresh();
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  useEffect(() => {
     if (!uuid) {
       setView(null);
       setLoadingView(false);
@@ -443,10 +487,10 @@ function FirewallContent() {
       const grant = await authorize(password, otp, usePasskey);
       const data = await postJSON(`/api/admin/firewall/${encodeURIComponent(uuid)}`, "PUT", {
         uuid,
-        block_ping_v4: next.block_ping_v4,
-        block_ping_v6: next.block_ping_v6,
-        default_deny_v4: next.default_deny_v4,
-        default_deny_v6: next.default_deny_v6,
+        block_ping_v4: Boolean(next.block_ping_v4 || next.block_ping_v6),
+        block_ping_v6: Boolean(next.block_ping_v4 || next.block_ping_v6),
+        default_deny_v4: Boolean(next.default_deny_v4 || next.default_deny_v6),
+        default_deny_v6: Boolean(next.default_deny_v4 || next.default_deny_v6),
         ssh_port: next.ssh_port || "",
         omit_keep: next.omit_keep || [],
         rules: persistableRules(next.rules),
@@ -550,7 +594,7 @@ function FirewallContent() {
     const q = query.trim().toLowerCase();
     return rules
       .filter((rule) => {
-        if (rule.stack !== stack) return false;
+        if (rule.stack !== stackView) return false;
         if (!q) return true;
         return [rule.action, rule.protocol, rule.port, rule.source, rule.comment, isKeepRule(rule) ? t("firewall.origin_keep") : ""].some((value) =>
           String(value || "").toLowerCase().includes(q),
@@ -562,11 +606,11 @@ function FirewallContent() {
         if (pa !== pb) return pa - pb;
         return String(a.id || "").localeCompare(String(b.id || ""));
       });
-  }, [query, rules, stack, t]);
+  }, [query, rules, stackView, t]);
   const pager = useAdminPagination(filtered);
   useEffect(() => {
     pager.setPage(1);
-  }, [query, stack, uuid, pager.setPage]);
+  }, [query, stackView, uuid, pager.setPage]);
 
   const snapshot = async () => {
     if (!uuid) return;
@@ -604,7 +648,7 @@ function FirewallContent() {
       protocol,
       port: form.port.trim(),
       source: form.source.trim(),
-      stack,
+      stack: stackView,
       comment: form.comment.trim(),
       origin: existing?.origin || "web",
       priority: Number(form.priority || 100),
@@ -644,7 +688,7 @@ function FirewallContent() {
             default_deny_v4: view?.intent.default_deny_v4 || false,
             default_deny_v6: view?.intent.default_deny_v6 || false,
             ssh_port: view?.intent.ssh_port || view?.snapshot?.ssh_port || "",
-            rules: persistableRules(rules).filter((rule) => rule.stack === stack),
+            rules: persistableRules(rules).filter((rule) => rule.stack === stackView),
           },
           null,
           2,
@@ -655,7 +699,7 @@ function FirewallContent() {
     const href = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = href;
-    anchor.download = `lite-plus-firewall-${stack}.json`;
+    anchor.download = `lite-plus-firewall-${stackView}.json`;
     anchor.click();
     URL.revokeObjectURL(href);
   };
@@ -674,7 +718,7 @@ function FirewallContent() {
         protocol: rule.protocol,
         port: rule.port,
         source: rule.source,
-        stack: rule.stack === "v6" || rule.stack === "v4" ? rule.stack : stack,
+        stack: rule.stack === "v6" || rule.stack === "v4" ? rule.stack : stackView,
         comment: rule.comment,
         origin: "file" as const,
         priority: Number(rule.priority || 100),
@@ -728,7 +772,6 @@ function FirewallContent() {
   };
 
   const online = uuid ? nodeOnlineState(available, onlineSet, uuid) : null;
-  const selectedNode = nodeDetail.find((node) => node.uuid === uuid) || null;
   const openNode = (node: NodeDetail) => {
     void prefetchFirewallView(node.uuid);
     setParams({ uuid: node.uuid });
@@ -768,7 +811,9 @@ function FirewallContent() {
   }
 
   const flag = selectedNode?.region_override?.trim() || selectedNode?.region?.trim() || "UN";
-  const stackReady = !view?.snapshot?.has_stacks || (stack === "v4" ? view.snapshot.stack_v4 !== false : view.snapshot.stack_v6 !== false);
+  const identityAddressLines = firewallIdentityAddressLines(selectedNode, mobile);
+  const stackReady = stackView === "v4" ? stacksOn.v4 : stacksOn.v6;
+  const hasStack = stacksOn.v4 || stacksOn.v6;
   const stackLocked = readOnly || !stackReady;
   const pingOn = Boolean(view?.intent.block_ping_v4 || view?.intent.block_ping_v6);
   const denyOn = Boolean(view?.intent.default_deny_v4 || view?.intent.default_deny_v6);
@@ -833,14 +878,23 @@ function FirewallContent() {
                 />
               ) : null}
             </Stack>
-            {selectedNode?.ipv4?.trim() || selectedNode?.ipv6?.trim() || selectedNode?.group?.trim() ? (
-              <Typography color="text.secondary" sx={{ mt: 0.75, fontSize: 13, lineHeight: 1.5 }}>
-                {[
-                  selectedNode?.ipv4?.trim() ? `IPv4 ${selectedNode.ipv4.trim()}` : "",
-                  selectedNode?.ipv6?.trim() ? `IPv6 ${compactIPv6(selectedNode.ipv6.trim())}` : "",
-                  selectedNode?.group?.trim() || "",
-                ].filter(Boolean).join("  ·  ")}
-              </Typography>
+            {identityAddressLines.length ? (
+              <Box sx={{ mt: 0.75, color: "text.secondary", fontSize: 13, lineHeight: 1.5 }}>
+                {identityAddressLines.map((line) => (
+                  <Typography
+                    key={line}
+                    component="div"
+                    color="inherit"
+                    sx={{
+                      fontSize: "inherit",
+                      lineHeight: "inherit",
+                      whiteSpace: identityAddressLines.length > 1 ? "normal" : "nowrap",
+                    }}
+                  >
+                    {line}
+                  </Typography>
+                ))}
+              </Box>
             ) : null}
             {view?.snapshot?.outer_hint ? (
               <Typography color="text.secondary" sx={{ mt: 0.5, fontSize: 13 }}>
@@ -957,17 +1011,19 @@ function FirewallContent() {
             </Callout.Root>
           ) : null}
           <SettingCardLabel>{t("firewall.rules")}</SettingCardLabel>
-          <AdminSheetTabs>
-            <Tabs value={stack} onChange={(_, next: "v4" | "v6") => next && setStack(next)}>
-              <Tab value="v4" label={<AdminTabLabel>{t("firewall.tab_v4")}</AdminTabLabel>} />
-              <Tab value="v6" label={<AdminTabLabel>{t("firewall.tab_v6")}</AdminTabLabel>} />
-            </Tabs>
-          </AdminSheetTabs>
-          {!stackReady ? (
-            <Callout.Root color="orange" role="status">
-              <Callout.Text>{t("firewall.stack_unsupported", { stack: t(`firewall.tab_${stack}`) })}</Callout.Text>
-            </Callout.Root>
+          {stacksOn.v4 && stacksOn.v6 ? (
+            <AdminSheetTabs>
+              <Tabs value={stackView} onChange={(_, next: "v4" | "v6") => next && setStack(next)}>
+                <Tab value="v4" label={<AdminTabLabel>{t("firewall.tab_v4")}</AdminTabLabel>} />
+                <Tab value="v6" label={<AdminTabLabel>{t("firewall.tab_v6")}</AdminTabLabel>} />
+              </Tabs>
+            </AdminSheetTabs>
           ) : null}
+          {!hasStack ? (
+            <Callout.Root color="orange" role="status">
+              <Callout.Text>{t("firewall.no_reported_address")}</Callout.Text>
+            </Callout.Root>
+          ) : (
           <AdminListShell>
             <AdminListFiltersBar>
               <Stack
@@ -999,7 +1055,7 @@ function FirewallContent() {
             </AdminListFiltersBar>
             {mobile ? (
               pager.pageItems.length === 0 ? (
-                <Box className="km-admin-list-empty">{query.trim() ? t("firewall.empty_rules_filtered") : t("firewall.empty_rules", { stack: t(`firewall.tab_${stack}`) })}</Box>
+                <Box className="km-admin-list-empty">{query.trim() ? t("firewall.empty_rules_filtered") : t("firewall.empty_rules", { stack: t(`firewall.tab_${stackView}`) })}</Box>
               ) : (
                 <AdminMobileCardStack>
                   {pager.pageItems.map((rule) => {
@@ -1032,7 +1088,7 @@ function FirewallContent() {
                 </AdminMobileCardStack>
               )
             ) : pager.pageItems.length === 0 ? (
-              <Box className="km-admin-list-empty">{query.trim() ? t("firewall.empty_rules_filtered") : t("firewall.empty_rules", { stack: t(`firewall.tab_${stack}`) })}</Box>
+              <Box className="km-admin-list-empty">{query.trim() ? t("firewall.empty_rules_filtered") : t("firewall.empty_rules", { stack: t(`firewall.tab_${stackView}`) })}</Box>
             ) : (
               <Table container={false} className="admin-responsive-table min-w-[880px]">
                 <TableHeader>
@@ -1101,11 +1157,12 @@ function FirewallContent() {
               showWhenEmpty
             />
           </AdminListShell>
+          )}
         </>
       )}
       <RuleDialog
         open={editing !== null}
-        stack={stack}
+        stack={stackView}
         rule={editing && editing !== "new" ? editing : null}
         hasGrant={hasGrant}
         twoFaEnabled={twoFaEnabled}
@@ -1571,6 +1628,22 @@ function compactIPv6(value: string) {
   return segments.length > 3
     ? `${segments.slice(0, 2).join(":")}:...${segments[segments.length - 1]}`
     : value;
+}
+
+function firewallIdentityAddressLines(
+  node: { ipv4?: string; ipv6?: string; group?: string } | null | undefined,
+  stackBoth: boolean,
+) {
+  const v4 = node?.ipv4?.trim() || "";
+  const v6 = node?.ipv6?.trim() || "";
+  const group = node?.group?.trim() || "";
+  const v4Text = v4 ? `IPv4 ${v4}` : "";
+  const v6Text = v6 ? `IPv6 ${compactIPv6(v6)}` : "";
+  if (!v4Text && !v6Text && !group) return [];
+  if (stackBoth && v4Text && v6Text) {
+    return [group ? `${v4Text}  ·  ${group}` : v4Text, v6Text];
+  }
+  return [[v4Text, v6Text, group].filter(Boolean).join("  ·  ")];
 }
 
 function FirewallNodePicker({

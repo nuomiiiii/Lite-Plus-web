@@ -219,6 +219,8 @@ test("admin RPC errors map to nodemgt i18n keys instead of raw English", () => {
     ["put remote node subscriptions in user extra links instead of proxy-providers", "", "nodemgt.tpl_remote_in_template"],
     ["RPC Error -32603: boom", "", "nodemgt.request_failed"],
     ["admin:nodemgt.inbound.list: RPC Error -32603: timeout", "", "nodemgt.request_failed"],
+    ["RPC Error -32602: host has no IPv6", "inbound", "nodemgt.inbound_stack_no_v6"],
+    ["RPC Error -32602: host has no IPv4", "inbound", "nodemgt.inbound_stack_no_v4"],
     ["RPC Error -32603: 站点未启用远程管理", "inbound", "nodemgt.firewall_site_off"],
     ["RPC Error -32603: 当前 Agent 不支持防火墙，请升级", "inbound", "nodemgt.firewall_agent_old"],
     ["RPC Error -32603: 节点未启用远程控制", "inbound", "nodemgt.firewall_remote_off"],

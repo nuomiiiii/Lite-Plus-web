@@ -22,11 +22,26 @@ test("firewall policy saves go through the grant dialog", () => {
 test("firewall policy uses one switch for both stacks", () => {
   assert.match(source, /function FirewallPolicySwitch/);
   assert.doesNotMatch(source, /function FirewallPolicyPair/);
+  assert.match(source, /function reportedStacks/);
+  assert.match(source, /function activeFirewallStack/);
+  assert.doesNotMatch(source, /function snapshotStacks/);
   assert.match(source, /block_ping_v4: next, block_ping_v6: next/);
   assert.match(source, /default_deny_v4: true, default_deny_v6: true/);
+  assert.match(source, /block_ping_v4: Boolean\(next.block_ping_v4 \|\| next.block_ping_v6\)/);
+  assert.match(source, /default_deny_v4: Boolean\(next.default_deny_v4 \|\| next.default_deny_v6\)/);
   assert.match(source, /default_deny_v4: false, default_deny_v6: false/);
-  assert.match(source, /firewall\.stack_unsupported/);
+  assert.match(source, /firewall\.no_reported_address/);
+  assert.doesNotMatch(source, /firewall\.stack_unsupported/);
+  assert.match(source, /stacksOn.v4 && stacksOn.v6/);
+  assert.doesNotMatch(source, /disabled=\{!stacksOn.v4\}/);
+  assert.doesNotMatch(source, /disabled=\{!stacksOn.v6\}/);
   assert.match(source, /disabled=\{stackLocked\}/);
+  assert.match(source, /reportedStacks\(selectedNode\)/);
+  assert.match(source, /window.setInterval\(\(\) => \{\s*refresh\(\);/);
+  assert.match(source, /10_000/);
+  assert.doesNotMatch(source, /void pullStacks\(\)/);
+  assert.doesNotMatch(source, /stack_v4: snap\?\.stack_v4/);
+  assert.doesNotMatch(source, /stack_v6: snap\?\.stack_v6/);
 });
 
 test("firewall policy row edits ssh port and saves it with the intent", () => {
@@ -57,6 +72,13 @@ test("firewall host sync and policy auth both offer passkey", () => {
 
 test("firewall identity flag is larger than the shared node-list emblem", () => {
   assert.match(source, /admin-firewall-identity-flag/);
+});
+
+test("firewall identity puts IPv6 on its own line only on mobile when both addresses exist", () => {
+  assert.match(source, /function firewallIdentityAddressLines/);
+  assert.match(source, /firewallIdentityAddressLines\(selectedNode, mobile\)/);
+  assert.match(source, /identityAddressLines\.map/);
+  assert.match(source, /if \(stackBoth && v4Text && v6Text\)/);
 });
 
 test("firewall delivery status is a chip on the right of the identity card", () => {
@@ -128,7 +150,7 @@ test("firewall rules table uses shared admin pagination", () => {
 
 test("firewall delete on one stack keeps the other stack rule", () => {
   assert.match(source, /persistableRules\(rules\)\.filter\(\(item\) => item\.id !== rule\.id\)/);
-  assert.match(source, /if \(rule\.stack !== stack\) return false/);
+  assert.match(source, /if \(rule\.stack !== stackView\) return false/);
 });
 
 test("firewall keep holes stay visible and are stripped on save", () => {
