@@ -179,7 +179,7 @@ const SS_METHODS = [
   "chacha20-ietf-poly1305",
 ] as const;
 const DEFAULT_SS_METHOD = "2022-blake3-aes-128-gcm";
-const OUTBOUND_PROTOCOLS = ["vless", "vmess", "trojan", "shadowsocks", "anytls", "socks", "http", "freedom", "blackhole"] as const;
+const OUTBOUND_PROTOCOLS = ["vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "anytls", "socks", "http", "freedom", "blackhole"] as const;
 const DOMAIN_STRATEGIES = ["AsIs", "UseIP", "UseIPv4", "UseIPv6"] as const;
 const ROUTE_NETWORKS = ["", "tcp", "udp", "tcp,udp"] as const;
 const ROUTE_PROTOCOLS = ["http", "tls", "quic", "bittorrent"] as const;
@@ -251,7 +251,7 @@ function defaultOutboundName(protocol: string) {
 }
 
 function isProxyOutbound(protocol: string) {
-  return ["vless", "vmess", "trojan", "shadowsocks", "anytls", "socks", "http"].includes(protocol);
+  return ["vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "anytls", "socks", "http"].includes(protocol);
 }
 
 const panelSx = {
@@ -391,6 +391,15 @@ function defaultSecurity(protocol: string): "none" | "tls" | "reality" {
 
 function coresFor(protocol: string) {
   return protocol === "anytls" || protocol === "hysteria2" || protocol === "tuic" ? ["sing-box"] : CORES;
+}
+
+function xrayUnsupportedProtocol(protocol: string) {
+  return protocol === "hysteria2" || protocol === "tuic" || protocol === "anytls";
+}
+
+function protocolsForCore(core: string, protocols: readonly string[], current = "") {
+  if (core !== "xray") return [...protocols];
+  return protocols.filter((value) => !xrayUnsupportedProtocol(value) || value === current);
 }
 
 function displayCore(value: string) {
@@ -537,6 +546,7 @@ function inboundForm(row?: any): FormMap {
     listen: str(row?.listen),
     port: str(row?.port, "443"),
     public_host: str(row?.public_host),
+    public_port: Number(row?.public_port || 0) > 0 ? str(row?.public_port) : "",
     transport,
     security,
     flow: flowForCore(str(row?.flow, existing ? "" : defaultInboundFlow(protocol, transport, security, core)), core),
@@ -585,7 +595,8 @@ function userForm(row?: any): FormMap {
     device_limit: row?.device_limit == null ? "0" : str(row.device_limit),
     expires_at: toDateTimeLocal(row?.expires_at || row?.assignment_ends_at),
     traffic_reset_day: str(row?.traffic_reset_day, "0"),
-    enabled: row?.status === "disabled" ? "false" : "true",
+    status: str(row?.status, "active"),
+    enabled: row?.status === "disabled" || row?.status === "expired" ? "false" : "true",
     extra_links: extraLinksFormValue(row?.extra_links),
   };
 }
@@ -772,6 +783,7 @@ function subscriptionForm(row?: any): FormMap {
 
 function outboundTransportsFor(protocol: string) {
   if (protocol === "shadowsocks") return transportsFor(protocol);
+  if (protocol === "hysteria2" || protocol === "tuic") return ["quic"];
   if (protocol === "anytls") return ["tcp"];
   return [...OUTBOUND_TRANSPORTS];
 }
@@ -780,9 +792,13 @@ function outboundForm(row?: any): FormMap {
   const protocol = str(row?.protocol, "vless");
   const core = str(row?.core, defaultCore(protocol));
   let transport = str(row?.transport, defaultTransport(protocol));
-  if (protocol === "shadowsocks" && !transportsFor(protocol).includes(transport)) {
+  if ((protocol === "shadowsocks" || protocol === "hysteria2" || protocol === "tuic") && !transportsFor(protocol).includes(transport)) {
     transport = defaultTransport(protocol);
   }
+  const allowedSecurity = securitiesFor(protocol, transport);
+  const security = allowedSecurity.includes(str(row?.security, defaultSecurity(protocol)))
+    ? str(row?.security, defaultSecurity(protocol))
+    : allowedSecurity[0];
   return {
     id: str(row?.id),
     name: str(row?.name),
@@ -797,7 +813,7 @@ function outboundForm(row?: any): FormMap {
     flow: flowForCore(str(row?.flow), core),
     domain_strategy: str(row?.domain_strategy, "AsIs"),
     transport,
-    security: str(row?.security, "none"),
+    security,
     sni: str(row?.sni),
     fingerprint: str(row?.fingerprint, DEFAULT_FINGERPRINT),
     ws_path: str(row?.ws_path, "/"),
@@ -857,6 +873,7 @@ function inboundUpsertBody(form: FormMap) {
     listen: form.listen,
     port: Number(form.port || 443),
     public_host: form.share_strategy === "other" ? form.public_host : "",
+    public_port: Number(form.public_port || 0),
     transport: form.transport,
     security: form.security,
     flow: form.flow,
@@ -2603,7 +2620,7 @@ export default function PlusAdminPage() {
       username: parsed.username || "",
       flow: flowForCore(parsed.flow || "", defaultCore(protocol)),
       transport: parsed.transport || defaultTransport(protocol),
-      security: parsed.security || "none",
+      security: parsed.security || defaultSecurity(protocol),
       sni: parsed.sni || "",
       fingerprint: parsed.fingerprint || DEFAULT_FINGERPRINT,
       ws_path: parsed.ws_path || "/",
@@ -2640,6 +2657,7 @@ export default function PlusAdminPage() {
     );
     const httpAcct = parseProxyAccounts(inbound?.accounts)[0];
     const httpUser = String(httpAcct?.user || granted?.username || uuid || sheet?.form.username || "");
+    const secretProtocol = ["shadowsocks", "hysteria2", "tuic", "trojan", "anytls"].includes(fields.protocol);
     void outboundPasswordFromInbound(inbound, users).then((ssPassword) => {
       setForm({
         ...fields,
@@ -2647,7 +2665,7 @@ export default function PlusAdminPage() {
         name: outboundTagFromInbound(inbound, sheet?.form.name),
         uuid: fields.protocol === "shadowsocks" ? uuidForInbound(inbound, users) : uuid,
         username: fields.protocol === "http" || fields.protocol === "socks" ? httpUser : sheet?.form.username || "",
-        password: fields.protocol === "shadowsocks" ? ssPassword : httpAcct?.pass || uuid || sheet?.form.password || "",
+        password: secretProtocol ? ssPassword : httpAcct?.pass || uuid || sheet?.form.password || "",
         flow: flowForCore(fields.flow || sheet?.form.flow || "", fields.core || sheet?.form.core),
       });
       setImportLink("");
@@ -2803,6 +2821,13 @@ export default function PlusAdminPage() {
           setError(t("nodemgt.invalid_inbound_port"));
           return;
         }
+        if ((form.public_port || "").trim()) {
+          const publicPort = Number(form.public_port);
+          if (!Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535) {
+            setError(t("nodemgt.invalid_inbound_port"));
+            return;
+          }
+        }
         const existing = inbounds.find((row) => str(row.id) === form.id) || null;
         const needsGrant = inboundNeedsFirewallGrant(form, existing, Boolean(inboundNodeOf(form.node_uuid)));
         if (needsGrant) {
@@ -2854,7 +2879,7 @@ export default function PlusAdminPage() {
           device_limit: Number(form.device_limit || 0),
           expires_at: fromDateTimeLocal(form.expires_at),
           traffic_reset_day: resetDay,
-          status: form.enabled === "false" ? "disabled" : "active",
+          status: form.enabled === "false" ? (form.status === "expired" ? "expired" : "disabled") : "active",
           extra_links: extraLinks,
         });
         if (!form.id) {
@@ -4120,7 +4145,7 @@ export default function PlusAdminPage() {
                         udp_fragment: inboundShowsUDPFragment(value, transport, core) ? "false" : sheet.form.udp_fragment,
                       });
                     }}
-                    options={PROTOCOLS.map((value) => ({ value, label: t(`nodemgt.proto_${value}`) }))}
+                    options={protocolsForCore(sheet.form.core, PROTOCOLS, sheet.form.protocol).map((value) => ({ value, label: t(`nodemgt.proto_${value}`) }))}
                   />
                   <SelectField
                     label={t("nodemgt.col_core")}
@@ -4172,13 +4197,20 @@ export default function PlusAdminPage() {
                   helper={t("nodemgt.share_strategy_help")}
                 />
                 {sheet.form.share_strategy === "other" ? (
-                  <Field
-                    label={t("nodemgt.share_other_host")}
-                    value={sheet.form.public_host}
-                    onChange={(value) => setForm({ public_host: value })}
-                    helper={t("nodemgt.share_other_help")}
-                    placeholder={t("nodemgt.share_other_placeholder")}
-                  />
+                  <TwoCol>
+                    <Field
+                      label={t("nodemgt.share_other_host")}
+                      value={sheet.form.public_host}
+                      onChange={(value) => setForm({ public_host: value })}
+                      helper={t("nodemgt.share_other_help")}
+                      placeholder={t("nodemgt.share_other_placeholder")}
+                    />
+                    <Field
+                      label={t("nodemgt.public_port")}
+                      value={sheet.form.public_port}
+                      onChange={(value) => setForm({ public_port: value })}
+                    />
+                  </TwoCol>
                 ) : null}
                 <SheetSwitch
                   title={t("nodemgt.firewall_allow")}
@@ -4693,7 +4725,7 @@ export default function PlusAdminPage() {
                 if (!line.includes("://")) return;
                 if (applyShareLink(line)) return;
                 const lower = line.toLowerCase();
-                if (/^(vless|vmess|trojan|ss|socks5?|https?|anytls):\/\//.test(lower) && (line.includes("@") || lower.startsWith("vmess://") || lower.startsWith("ss://"))) {
+                if (/^(vless|vmess|trojan|ss|socks5?|https?|anytls|hysteria2?|hy2|tuic):\/\//.test(lower) && (line.includes("@") || lower.startsWith("vmess://") || lower.startsWith("ss://"))) {
                   toast.error(t("nodemgt.outbound_import_fail"));
                 }
               }}
@@ -4723,7 +4755,7 @@ export default function PlusAdminPage() {
                     security,
                   });
                 }}
-                options={OUTBOUND_PROTOCOLS.map((value) => ({ value, label: t(`nodemgt.outbound_${value}`) }))}
+                options={protocolsForCore(sheet.form.core, OUTBOUND_PROTOCOLS, sheet.form.protocol).map((value) => ({ value, label: t(`nodemgt.outbound_${value}`) }))}
               />
               <SelectField label={t("nodemgt.col_core")} value={sheet.form.core} onChange={(value) => setForm({ core: value, flow: flowForCore(sheet.form.flow, value) })} options={coresFor(sheet.form.protocol).map((value) => ({ value, label: displayCore(value) }))} />
             </TwoCol>
@@ -4756,7 +4788,7 @@ export default function PlusAdminPage() {
                   <Field label={t("nodemgt.col_address")} value={sheet.form.address} onChange={(value) => setForm({ address: value })} />
                   <Field label={t("nodemgt.col_dest_port")} value={sheet.form.dest_port} onChange={(value) => setForm({ dest_port: value })} />
                 </TwoCol>
-                {sheet.form.protocol === "vless" || sheet.form.protocol === "vmess" ? (
+                {sheet.form.protocol === "vless" || sheet.form.protocol === "vmess" || sheet.form.protocol === "tuic" ? (
                   <Field label="UUID" value={sheet.form.uuid} onChange={(value) => setForm({ uuid: value })} />
                 ) : null}
                 {sheet.form.protocol === "vless" ? (
@@ -4767,7 +4799,7 @@ export default function PlusAdminPage() {
                     options={flowsFor(sheet.form.core).map((value) => ({ value, label: value || t("nodemgt.flow_none") }))}
                   />
                 ) : null}
-                {sheet.form.protocol === "trojan" || sheet.form.protocol === "shadowsocks" || sheet.form.protocol === "anytls" || sheet.form.protocol === "socks" || sheet.form.protocol === "http" ? (
+                {sheet.form.protocol === "trojan" || sheet.form.protocol === "shadowsocks" || sheet.form.protocol === "hysteria2" || sheet.form.protocol === "tuic" || sheet.form.protocol === "anytls" || sheet.form.protocol === "socks" || sheet.form.protocol === "http" ? (
                   <TwoCol>
                     {sheet.form.protocol === "socks" || sheet.form.protocol === "http" ? (
                       <Field label={t("nodemgt.col_username")} value={sheet.form.username} onChange={(value) => setForm({ username: value })} />

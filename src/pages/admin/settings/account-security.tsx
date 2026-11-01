@@ -594,7 +594,8 @@ function UsernamePanel({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ uuid: account?.uuid, username }),
               });
-              if (!response.ok) throw new Error("Failed to update username");
+              const data = await response.json();
+              if (!response.ok) throw new Error(data.message || "Failed to update username");
               await refresh();
               toast.success(t("common.updated_successfully"));
               onClose();

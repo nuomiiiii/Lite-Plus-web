@@ -16,6 +16,14 @@ test("tls inbound defaults to empty flow, reality still defaults to vision", () 
   );
 });
 
+test("xray core hides hysteria2 tuic and anytls from protocol pickers", () => {
+  assert.match(source, /function xrayUnsupportedProtocol\(protocol: string\) \{/);
+  assert.match(source, /return protocol === "hysteria2" \|\| protocol === "tuic" \|\| protocol === "anytls"/);
+  assert.match(source, /function protocolsForCore\(core: string, protocols: readonly string\[\], current = ""\) \{/);
+  assert.match(source, /options=\{protocolsForCore\(sheet\.form\.core, PROTOCOLS, sheet\.form\.protocol\)\.map/);
+  assert.match(source, /options=\{protocolsForCore\(sheet\.form\.core, OUTBOUND_PROTOCOLS, sheet\.form\.protocol\)\.map/);
+});
+
 test("sing-box vless tcp tls/reality can use the same vision flow as xray", () => {
   assert.match(source, /function canUseFlow\(protocol: string, transport: string, security: string, _core = "xray"\) \{/);
   assert.doesNotMatch(source, /if \(core === "sing-box"\) return false;/);
@@ -48,13 +56,28 @@ test("disabled routes outbounds and users still follow the node apply-config chi
 test("new outbound copies uuid from the inbound's granted user", () => {
   assert.match(source, /const uuid = uuidForInbound\(inbound, users\) \|\| sheet\?\.form\.uuid \|\| ""/);
   assert.match(source, /outboundPasswordFromInbound\(inbound, users\)/);
-  assert.match(source, /fields\.protocol === "shadowsocks" \? ssPassword/);
+  assert.match(source, /const secretProtocol = \["shadowsocks", "hysteria2", "tuic", "trojan", "anytls"\]\.includes\(fields\.protocol\)/);
+  assert.match(source, /password: secretProtocol \? ssPassword/);
 });
 
 test("reuse built-in HTTPS does not copy certificate domain into public host", () => {
   assert.doesNotMatch(source, /certShareDomain/);
   assert.doesNotMatch(source, /reuse && domain \? domain/);
   assert.match(source, /sub_public_host: nextCfg\.sub_public_host/);
+});
+
+test("inbound other-share keeps public port on save", () => {
+  assert.match(source, /public_port: Number\(row\?\.public_port \|\| 0\) > 0 \? str\(row\?\.public_port\) : ""/);
+  assert.match(source, /public_port: Number\(form\.public_port \|\| 0\)/);
+  assert.match(source, /label=\{t\("nodemgt\.public_port"\)\}/);
+});
+
+test("editing an expired user does not reactivate them", () => {
+  assert.match(source, /enabled: row\?\.status === "disabled" \|\| row\?\.status === "expired" \? "false" : "true"/);
+  assert.match(
+    source,
+    /status: form\.enabled === "false" \? \(form\.status === "expired" \? "expired" : "disabled"\) : "active"/,
+  );
 });
 
 test("new user save uses upsert secret instead of a second credential issue", () => {

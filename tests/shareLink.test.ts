@@ -65,3 +65,32 @@ test("parses HTTP proxy share links", () => {
   assert.equal(https?.security, "tls");
   assert.equal(https?.dest_port, "8443");
 });
+
+test("parses hysteria2 and tuic share links", () => {
+  const hy2 = parseShareLink("hy2://hy2-secret@hy2.example.com:443?security=tls&sni=hy2.example.com#node-hy2");
+  assert.equal(hy2?.protocol, "hysteria2");
+  assert.equal(hy2?.address, "hy2.example.com");
+  assert.equal(hy2?.dest_port, "443");
+  assert.equal(hy2?.password, "hy2-secret");
+  assert.equal(hy2?.transport, "quic");
+  assert.equal(hy2?.security, "tls");
+  assert.equal(hy2?.sni, "hy2.example.com");
+  assert.equal(hy2?.name, "node-hy2");
+
+  const hysteria2 = parseShareLink("hysteria2://pass%2Fword@edge.example:8443?sni=edge.example#hy");
+  assert.equal(hysteria2?.protocol, "hysteria2");
+  assert.equal(hysteria2?.password, "pass/word");
+  assert.equal(hysteria2?.transport, "quic");
+  assert.equal(hysteria2?.security, "tls");
+
+  const tuic = parseShareLink(
+    "tuic://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:tuic-secret@tuic.example.com:443?security=tls&sni=tuic.example.com#node-tuic",
+  );
+  assert.equal(tuic?.protocol, "tuic");
+  assert.equal(tuic?.uuid, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+  assert.equal(tuic?.password, "tuic-secret");
+  assert.equal(tuic?.transport, "quic");
+  assert.equal(tuic?.security, "tls");
+  assert.equal(tuic?.sni, "tuic.example.com");
+  assert.equal(tuic?.name, "node-tuic");
+});

@@ -860,13 +860,14 @@ function FirewallContent() {
               </Typography>
               <Chip
                 size="small"
-                label={online ? t("nodeCard.online") : t("nodeCard.offline")}
+                label={online == null ? "…" : online ? t("nodeCard.online") : t("nodeCard.offline")}
                 sx={{
                   height: 22,
                   fontWeight: 600,
                   fontSize: 12,
                   color: online ? "#fff" : "var(--red-11)",
                   bgcolor: online ? "#22C55E" : "var(--red-a3)",
+                  visibility: online == null ? "hidden" : undefined,
                 }}
               />
               {view?.snapshot?.backend ? (

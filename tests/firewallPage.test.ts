@@ -87,6 +87,7 @@ test("firewall delivery status is a chip on the right of the identity card", () 
   assert.match(identity, /ml: "auto"/);
   assert.match(identity, /deliveryStatusChipSx\(view\.delivery_status\)/);
   assert.match(identity, /nodeCard\.online/);
+  assert.match(identity, /online == null \? "…" : online \? t\("nodeCard\.online"\) : t\("nodeCard\.offline"\)/);
   assert.match(identity, /firewall\.backend\./);
   const backendAt = identity.indexOf("firewall.backend.");
   const deliveryAt = identity.indexOf("deliveryStatusChipSx");

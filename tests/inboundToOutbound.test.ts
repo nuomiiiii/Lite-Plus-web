@@ -40,6 +40,51 @@ test("uses node IP, listen address, or custom share host", () => {
   assert.equal(inboundSharePort({ port: 443 }), "443");
 });
 
+test("copies hysteria2 and tuic inbound fields into an outbound", () => {
+  const hy2 = outboundFieldsFromInbound(
+    {
+      protocol: "hysteria2",
+      core: "sing-box",
+      port: 443,
+      transport: "quic",
+      security: "tls",
+      sni: "hy2.example.com",
+      share_strategy: "other",
+      public_host: "hy2.example.com",
+    },
+    { ipv4: "ignored" },
+  );
+  assert.equal(hy2.protocol, "hysteria2");
+  assert.equal(hy2.core, "sing-box");
+  assert.equal(hy2.transport, "quic");
+  assert.equal(hy2.security, "tls");
+  assert.equal(hy2.address, "hy2.example.com");
+  assert.equal(hy2.dest_port, "443");
+  assert.equal(hy2.sni, "hy2.example.com");
+
+  const tuic = outboundFieldsFromInbound({
+    protocol: "tuic",
+    core: "sing-box",
+    port: 8443,
+    transport: "quic",
+    security: "tls",
+    sni: "tuic.example.com",
+    share_strategy: "other",
+    public_host: "tuic.example.com",
+  });
+  assert.equal(tuic.protocol, "tuic");
+  assert.equal(tuic.transport, "quic");
+  assert.equal(tuic.dest_port, "8443");
+});
+
+test("hysteria2 inbound password is the user secret", async () => {
+  const got = await outboundPasswordFromInbound(
+    { protocol: "hysteria2", id: "in1" },
+    [{ status: "enabled", inbound_ids: ["in1"], credentials: [{ uuid: "u1", secret: "hy2-secret" }] }],
+  );
+  assert.equal(got, "hy2-secret");
+});
+
 test("shadowsocks outbound copy keeps inbound network", () => {
   const both = outboundFieldsFromInbound(
     {

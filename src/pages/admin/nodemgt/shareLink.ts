@@ -74,15 +74,19 @@ function parseURI(raw: string): ShareLinkFields | null {
     return null;
   }
   const protocol = url.protocol.replace(":", "").toLowerCase();
-  if (!["vless", "trojan", "anytls", "socks", "socks5", "http", "https"].includes(protocol)) return null;
+  if (!["vless", "trojan", "anytls", "socks", "socks5", "http", "https", "hysteria2", "hy2", "tuic"].includes(protocol)) return null;
   const q = queryOf(url);
-  const mapped = protocol === "socks5" ? "socks" : protocol === "https" ? "http" : protocol;
+  const mapped =
+    protocol === "socks5" ? "socks" : protocol === "https" ? "http" : protocol === "hy2" ? "hysteria2" : protocol;
   const user = decodeURIComponent(url.username || "");
   const pass = decodeURIComponent(url.password || "");
-  const transport = transportOf(pick(q, "type", "net", "network") || "tcp");
+  const quic = mapped === "hysteria2" || mapped === "tuic";
+  const transport = quic ? "quic" : transportOf(pick(q, "type", "net", "network") || "tcp");
   const security = securityOf(
     pick(q, "security", "tls") ||
-      (mapped === "trojan" || mapped === "anytls" || protocol === "https" ? "tls" : "none"),
+      (mapped === "trojan" || mapped === "anytls" || mapped === "hysteria2" || mapped === "tuic" || protocol === "https"
+        ? "tls"
+        : "none"),
   );
   const fields: ShareLinkFields = {
     protocol: mapped,
@@ -102,8 +106,12 @@ function parseURI(raw: string): ShareLinkFields | null {
     spider_x: pick(q, "spx", "spiderx"),
   };
   if (mapped === "vless") fields.uuid = user;
-  else if (mapped === "trojan" || mapped === "anytls") fields.password = user;
-  else {
+  else if (mapped === "tuic") {
+    fields.uuid = user;
+    fields.password = pass;
+  } else if (mapped === "trojan" || mapped === "anytls" || mapped === "hysteria2") {
+    fields.password = user || pass;
+  } else {
     fields.username = user;
     fields.password = pass;
   }
