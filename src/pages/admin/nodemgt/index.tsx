@@ -974,6 +974,10 @@ function chainManaged(row?: any) {
   }
 }
 
+function isRelayAccount(row?: any) {
+  return str(row?.kind).toLowerCase() === "relay" || str(row?.username).startsWith("__relay__");
+}
+
 function chainSourceInboundIDs(rows: any[]) {
   const ids = new Set<string>();
   for (const row of rows || []) {
@@ -2709,10 +2713,10 @@ export default function PlusAdminPage() {
     .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
     .slice()
     .sort((a, b) => inboundSortKey(a) - inboundSortKey(b) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
-  const visibleUsers = users.filter((row) => matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
+  const visibleUsers = users.filter((row) => !isRelayAccount(row) && matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
   const visiblePlans = plans.filter((row) => matchSearch(row, ["name"]));
   const visibleCerts = certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"]));
-  const visibleSubs = subs.filter((row) => matchSearch(row, ["user_id", "format", "token"]));
+  const visibleSubs = subs.filter((row) => !isRelayAccount(row) && matchSearch(row, ["user_id", "format", "token"]));
   const visibleOutbounds = outbounds.filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
   const visibleRoutes = routes
     .filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "domain"]))
@@ -2809,7 +2813,7 @@ export default function PlusAdminPage() {
     { value: "direct", label: t("nodemgt.builtin_direct") },
     ...chainLandingOptions.filter((item) => item.value !== csvIDs(sheet?.form.landing_inbound_ids || "")[0]),
   ];
-  const userOptions = users.map((row) => ({ value: row.id, label: row.username || row.id }));
+  const userOptions = users.filter((row) => !isRelayAccount(row)).map((row) => ({ value: row.id, label: row.username || row.id }));
   const planOptions = [{ value: "", label: t("nodemgt.plan_none") }, ...plans.map((row) => ({ value: row.id, label: row.name }))];
   const outboundOptions = outbounds.filter((row) => !chainManaged(row)).map((row) => ({ value: row.id, label: row.name }));
   const builtinOutboundOptions = [
@@ -3873,7 +3877,7 @@ export default function PlusAdminPage() {
           hidden={subPage !== "templates"}
           sx={{ display: subPage === "templates" ? "block" : "none" }}
         >
-          <SubscriptionTemplates subs={subs} plans={plans} initial={templates} onChange={rememberTemplates} />
+          <SubscriptionTemplates subs={subs.filter((row) => !isRelayAccount(row))} plans={plans} initial={templates} onChange={rememberTemplates} />
         </Box>
       ) : null}
       {(tab === "subscriptions" && (subPage === "access" || subPage === "templates")) || (tab === "certs" && certPage === "issuer") ? null : (

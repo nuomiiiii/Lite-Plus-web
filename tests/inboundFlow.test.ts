@@ -152,6 +152,9 @@ test("forwarding chains use a nodemgt table and optional primary/backup form", (
   assert.match(source, /backup_id/);
   assert.match(source, /id="chains"/);
   assert.match(source, /visibleOutbounds = outbounds\.filter\(\(row\) => !chainManaged\(row\)/);
+  assert.match(source, /function isRelayAccount/);
+  assert.match(source, /visibleUsers = users\.filter\(\(row\) => !isRelayAccount\(row\)/);
+  assert.match(source, /visibleSubs = subs\.filter\(\(row\) => !isRelayAccount\(row\)/);
   assert.match(source, /chainStrategyOf\(sheet\.form\.strategy\) === "failover" \? "nodemgt\.chain_primary" : "nodemgt\.chain_landings"/);
   assert.match(source, /chain_landings_single_help/);
   assert.doesNotMatch(source, /value: "", label: t\("nodemgt\.chain_landing_required"\)/);

@@ -11,7 +11,7 @@ test("new inbound sheet starts with sniffing off", () => {
   assert.match(source, /<AdminMultiSelect/);
   assert.match(source, /filtersByTab/);
   assert.match(source, /<AdminActiveFilters/);
-  assert.match(source, /key=\{tab\}/);
+  assert.match(source, /className="admin-tab-panel"/);
   assert.match(source, /nodemgt\.random_port/);
   assert.match(source, /nodemgt\.random_short_id/);
   assert.match(source, /uuidForInbound\(inbound, users\)/);
