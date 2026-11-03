@@ -53,6 +53,9 @@ test("disabled routes outbounds and users still follow the node apply-config chi
   assert.match(source, /function inboundDeliveryOf\(row\?: any, cmd\?: any\) \{\s*const status = deliveryStatusOf\(cmd\);/);
   assert.match(source, /if \(!Number\.isFinite\(rowAt\)\) return false;/);
   assert.match(source, /function userDeliveryCmd/);
+  assert.match(source, /function chainDeliveryCmd/);
+  assert.match(source, /function deliveryCmdFresh/);
+  assert.match(source, /freshChainCmd\(row, leftCmds\)/);
 });
 
 test("new outbound copies uuid from the inbound's granted user", () => {
@@ -151,6 +154,7 @@ test("forwarding chains use a nodemgt table and optional primary/backup form", (
   assert.match(source, /chain_strategy_failover/);
   assert.match(source, /backup_id/);
   assert.match(source, /id="chains"/);
+  assert.match(source, /tab === "chains" \? \([\s\S]*key: "delivery"[\s\S]*chainDeliveryCmd\(row, delivery\)/);
   assert.match(source, /visibleOutbounds = outbounds\.filter\(\(row\) => !chainManaged\(row\)/);
   assert.match(source, /function isRelayAccount/);
   assert.match(source, /visibleUsers = users\.filter\(\(row\) => !isRelayAccount\(row\)/);
@@ -164,6 +168,13 @@ test("forwarding chains use a nodemgt table and optional primary/backup form", (
   assert.match(source, /current === "urltest"/);
   assert.match(source, /current === "failover"/);
   assert.doesNotMatch(source, /backupLanding/);
+  assert.match(source, /function routeStrategyFields/);
+  assert.match(source, /nodemgt\.route_primary/);
+  assert.match(source, /nodemgt\.route_backup/);
+  assert.match(source, /outbound_id: str\(row\?\.outbound_id\),/);
+  assert.doesNotMatch(source, /outbound_id: str\(row\?\.outbound_id, "direct"\)/);
+  assert.doesNotMatch(source, /value: "", label: t\("nodemgt\.route_all_inbounds"\)/);
+  assert.match(source, /backup_outbound_id: strategy === "failover" \? form\.backup_id : ""/);
   assert.match(source, /nodemgt\.chain_fallback_col/);
   assert.match(source, /nodemgt\.chain_in_use/);
   assert.match(source, /nodemgt\.chain_route_in_use/);

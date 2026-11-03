@@ -837,12 +837,18 @@ function outboundForm(row?: any): FormMap {
 }
 
 function routeForm(row?: any): FormMap {
+  const strategy = chainStrategyOf(row?.strategy) === "failover" ? "failover" : "none";
+  const backupDirect = row?.backup_direct === true;
+  const backupId = strategy === "failover" ? (backupDirect ? "direct" : str(row?.backup_outbound_id)) : "";
   return {
     id: str(row?.id),
     name: str(row?.name),
     node_uuid: str(row?.node_uuid),
     inbound_id: str(row?.inbound_id),
-    outbound_id: str(row?.outbound_id, "direct"),
+    outbound_id: str(row?.outbound_id),
+    strategy,
+    backup_id: backupId,
+    fallback_direct: row?.fallback_direct === true ? "true" : "false",
     domain: str(row?.domain),
     ip: str(row?.ip),
     network: str(row?.network),
@@ -852,6 +858,26 @@ function routeForm(row?: any): FormMap {
     priority: str(row?.priority, "0"),
     enabled: row?.enabled === false ? "false" : "true",
   };
+}
+
+function routeStrategyFields(form: FormMap, strategy: string): FormMap {
+  if (strategy !== "failover") {
+    return { strategy: "none", backup_id: "", fallback_direct: "false" };
+  }
+  const backup = form.backup_id && form.backup_id !== form.outbound_id ? form.backup_id : "";
+  return {
+    strategy,
+    backup_id: backup,
+    fallback_direct: backup === "direct" ? "false" : form.fallback_direct,
+  };
+}
+
+function routeBackupDirect(form: FormMap) {
+  return chainStrategyOf(form.strategy) === "failover" && form.backup_id === "direct";
+}
+
+function routeShowsFallback(form: FormMap) {
+  return chainStrategyOf(form.strategy) === "failover" && form.backup_id !== "direct";
 }
 
 function csvIDs(raw: string) {
@@ -964,11 +990,12 @@ function chainUpsertBody(form: FormMap, enabled?: boolean) {
 }
 
 function chainManaged(row?: any) {
-  if (row?.chain_managed === true) return true;
+  if (row?.chain_managed === true || row?.route_managed === true) return true;
   const raw = str(row?.settings_json || row?.rule_json);
   if (!raw) return false;
   try {
-    return JSON.parse(raw)?.chain_managed === true;
+    const parsed = JSON.parse(raw);
+    return parsed?.chain_managed === true || parsed?.route_managed === true;
   } catch {
     return false;
   }
@@ -1120,12 +1147,17 @@ function outboundUpsertBody(form: FormMap) {
 }
 
 function routeUpsertBody(form: FormMap) {
+  const strategy = chainStrategyOf(form.strategy) === "failover" ? "failover" : "none";
   return {
     id: form.id || undefined,
     node_uuid: form.node_uuid,
     name: form.name,
     inbound_id: form.inbound_id,
     outbound_id: form.outbound_id,
+    backup_outbound_id: strategy === "failover" ? form.backup_id : "",
+    strategy,
+    backup_direct: routeBackupDirect(form),
+    fallback_direct: routeShowsFallback(form) && form.fallback_direct === "true",
     domain: form.domain,
     ip: form.ip,
     network: form.network,
@@ -2229,6 +2261,46 @@ function userDeliveryCmd(row: any, inboundRows: any[], commands: any[]) {
   return cmds.find((cmd) => inboundTouched(row, cmd)) || cmds[0];
 }
 
+function chainNodeIDs(row: any) {
+  const ids = new Set<string>();
+  for (const item of Array.isArray(row?.sources) ? row.sources : []) {
+    const id = str(item?.source_node_uuid);
+    if (id) ids.add(id);
+  }
+  for (const item of Array.isArray(row?.landings) ? row.landings : []) {
+    const id = str(item?.landing_node_uuid);
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+function deliveryCmdFresh(row?: any, cmd?: any) {
+  if (!cmd) return false;
+  const rowAt = parseStamp(row?.updated_at);
+  const cmdAt = parseStamp(cmd?.created_at || cmd?.updated_at);
+  if (!Number.isFinite(cmdAt)) return false;
+  if (!Number.isFinite(rowAt)) return true;
+  return cmdAt >= rowAt - 8000;
+}
+
+function freshChainCmd(row: any, commands: any[]) {
+  const fresh = commands.filter((cmd) => inboundTouched(row, cmd) && deliveryCmdFresh(row, cmd));
+  if (!fresh.length) return undefined;
+  return [...fresh].sort((a, b) => parseStamp(b?.created_at || b?.updated_at) - parseStamp(a?.created_at || a?.updated_at))[0];
+}
+
+function chainDeliveryCmd(row: any, commands: any[]) {
+  const memberIDs = new Set(chainNodeIDs(row));
+  const memberCmds = [...memberIDs]
+    .map((id) => commands.find((item) => str(item?.node_uuid) === id))
+    .filter(Boolean);
+  const leftCmds = commands.filter((cmd) => {
+    const id = str(cmd?.node_uuid);
+    return id && !memberIDs.has(id);
+  });
+  return freshChainCmd(row, memberCmds) || freshChainCmd(row, leftCmds) || memberCmds[0];
+}
+
 function InboundOverflow({ names }: { names: string[] }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -2836,6 +2908,11 @@ export default function PlusAdminPage() {
     const row = outbounds.find((outbound) => outbound.id === item.value);
     return !sheetNode || row?.node_uuid === sheetNode;
   });
+  const routeOutboundChoices = [...builtinOutboundOptions, ...nodeOutboundOptions];
+  const routeBackupOptions = [
+    ...(sheet?.form.outbound_id === "direct" ? [] : [{ value: "direct", label: t("nodemgt.builtin_direct") }]),
+    ...nodeOutboundOptions.filter((item) => item.value !== sheet?.form.outbound_id),
+  ];
   const viaOutboundOptions = outbounds
     .filter((row) => !chainManaged(row) && (!sheetNode || row.node_uuid === sheetNode) && row.name && row.name !== sheet?.form.name)
     .map((row) => ({ value: row.name, label: row.name }));
@@ -3205,6 +3282,10 @@ export default function PlusAdminPage() {
       } else if (sheet.kind === "route") {
         if (!form.outbound_id) {
           setError(t("nodemgt.route_outbound_required"));
+          return;
+        }
+        if (chainStrategyOf(form.strategy) === "failover" && !form.backup_id) {
+          setError(t("nodemgt.route_backup_required"));
           return;
         }
         if (form.inbound_id && forwardingSourceInboundIDs.has(form.inbound_id)) {
@@ -3990,13 +4071,13 @@ export default function PlusAdminPage() {
                 {
                   key: "sources",
                   label: t("nodemgt.col_sources"),
-                  width: "22%",
+                  width: "18%",
                   render: (row) => <InboundOverflow names={row.source_names || []} />,
                 },
                 {
                   key: "landings",
                   label: t("nodemgt.col_landings"),
-                  width: "22%",
+                  width: "18%",
                   render: (row) => <InboundOverflow names={row.landing_names || []} />,
                 },
                 {
@@ -4021,6 +4102,10 @@ export default function PlusAdminPage() {
                   width: "10%",
                   render: (row) => (row.fallback_direct ? t("nodemgt.builtin_direct") : "—"),
                 },
+                { key: "delivery", label: t("nodemgt.col_delivery"), render: (row) => {
+                  const cmd = chainDeliveryCmd(row, delivery);
+                  return <DeliveryChip status={inboundDeliveryOf(row, cmd)} error={inboundTouched(row, cmd) ? cmd?.last_error : undefined} />;
+                } },
                 { key: "enabled", label: t("nodemgt.col_enabled"), render: (row) => <EnableSwitch checked={row.enabled !== false} onChange={(next) => void toggleRowEnabled("chain", row, next)} /> },
                 {
                   key: "actions",
@@ -4088,12 +4173,22 @@ export default function PlusAdminPage() {
                 {
                   key: "outbound",
                   label: t("nodemgt.col_outbound"),
-                  width: "13%",
-                  render: (row) => (
-                    <CellEllipsis
-                      value={[...builtinOutboundOptions, ...outboundOptions].find((item) => item.value === row.outbound_id)?.label || row.outbound_id || "—"}
-                    />
-                  ),
+                  width: "16%",
+                  render: (row) => {
+                    const options = [...builtinOutboundOptions, ...outboundOptions];
+                    const primary = options.find((item) => item.value === row.outbound_id)?.label || row.outbound_id || "—";
+                    if (chainStrategyOf(row.strategy) !== "failover") return <CellEllipsis value={primary} />;
+                    const backup = row.backup_direct
+                      ? t("nodemgt.builtin_direct")
+                      : options.find((item) => item.value === row.backup_outbound_id)?.label || row.backup_outbound_id || "—";
+                    return <CellEllipsis value={`${primary} / ${backup}`} />;
+                  },
+                },
+                {
+                  key: "strategy",
+                  label: t("nodemgt.chain_strategy"),
+                  width: "8%",
+                  render: (row) => t(chainStrategyLabelKey(chainStrategyOf(row.strategy) === "failover" ? "failover" : "none")),
                 },
                 {
                   key: "match",
@@ -5295,7 +5390,7 @@ export default function PlusAdminPage() {
             <SelectField
               label={t("nodemgt.col_node")}
               value={sheet.form.node_uuid}
-              onChange={(value) => setForm({ node_uuid: value, inbound_id: "", outbound_id: "" })}
+              onChange={(value) => setForm({ node_uuid: value, inbound_id: "", outbound_id: "", backup_id: "" })}
               options={nodeOptions.length ? nodeOptions : [{ value: "", label: t("nodemgt.no_nodes") }]}
               helper={t("nodemgt.node_help")}
               searchable
@@ -5305,18 +5400,49 @@ export default function PlusAdminPage() {
               label={t("nodemgt.col_inbound")}
               value={sheet.form.inbound_id}
               onChange={(value) => setForm({ inbound_id: value })}
-              options={[{ value: "", label: t("nodemgt.route_all_inbounds") }, ...nodeInboundOptions]}
+              options={nodeInboundOptions}
               helper={t("nodemgt.route_inbound_help")}
               searchable
             />
             <SelectField
-              label={t("nodemgt.col_outbound")}
+              label={t("nodemgt.chain_strategy")}
+              value={chainStrategyOf(sheet.form.strategy) === "failover" ? "failover" : "none"}
+              onChange={(value) => setForm(routeStrategyFields(sheet.form, value))}
+              options={[
+                { value: "none", label: t("nodemgt.chain_strategy_none") },
+                { value: "failover", label: t("nodemgt.chain_strategy_failover") },
+              ]}
+              helper={t("nodemgt.route_strategy_help")}
+            />
+            <SelectField
+              label={t(chainStrategyOf(sheet.form.strategy) === "failover" ? "nodemgt.route_primary" : "nodemgt.col_outbound")}
               value={sheet.form.outbound_id}
-              onChange={(value) => setForm({ outbound_id: value })}
-              options={[...builtinOutboundOptions, ...nodeOutboundOptions]}
-              helper={t("nodemgt.route_outbound_help")}
+              onChange={(value) => setForm({
+                outbound_id: value,
+                backup_id: sheet.form.backup_id === value ? "" : sheet.form.backup_id,
+              })}
+              options={routeOutboundChoices}
+              helper={t(chainStrategyOf(sheet.form.strategy) === "failover" ? "nodemgt.route_primary_help" : "nodemgt.route_outbound_help")}
               searchable
             />
+            {chainStrategyOf(sheet.form.strategy) === "failover" ? (
+            <SelectField
+              label={t("nodemgt.route_backup")}
+              value={sheet.form.backup_id}
+              onChange={(value) => setForm({ backup_id: value, fallback_direct: value === "direct" ? "false" : sheet.form.fallback_direct })}
+              options={routeBackupOptions}
+              helper={t("nodemgt.route_backup_help")}
+              searchable
+            />
+            ) : null}
+            {routeShowsFallback(sheet.form) ? (
+            <SheetSwitch
+              title={t("nodemgt.chain_fallback_direct")}
+              description={t("nodemgt.route_fallback_direct_help")}
+              checked={sheet.form.fallback_direct === "true"}
+              onChange={(next) => setForm({ fallback_direct: next ? "true" : "false" })}
+            />
+            ) : null}
               </>
             ) : null}
             {sheetTab === "match" ? (

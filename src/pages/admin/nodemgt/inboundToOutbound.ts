@@ -261,6 +261,7 @@ const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
   [/chain_cycle/i, "nodemgt.chain_cycle"],
   [/chain_no_address/i, "nodemgt.chain_no_address"],
   [/chain_managed/i, "nodemgt.chain_managed"],
+  [/route_backup_required/i, "nodemgt.route_backup_required"],
   [/outbound_tag_reserved|outbound tag reserved/i, "nodemgt.outbound_tag_reserved"],
   [/outbound_tag_duplicate|(?:conflict:.*)?outbound tag\b/i, "nodemgt.outbound_tag_duplicate"],
   [/built-in https certificate required/i, "nodemgt.sub_reuse_https_missing"],
