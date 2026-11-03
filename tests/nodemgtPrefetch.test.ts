@@ -13,6 +13,19 @@ const ts = require(path.join(webRoot, "node_modules/typescript"));
 const prefetchSource = readFileSync(path.join(webRoot, "src/pages/admin/nodemgt/prefetch.ts"), "utf8");
 const securitySource = readFileSync(path.join(webRoot, "src/utils/security.ts"), "utf8");
 
+test("hovering forwarding prefetches chain list as the primary payload", () => {
+  assert.match(prefetchSource, /nodemgtTabFromAdminPath/);
+  assert.match(prefetchSource, /"\/forwarding": "chains"/);
+  assert.match(prefetchSource, /case "chains":/);
+  const routesSource = readFileSync(path.join(webRoot, "src/routes.ts"), "utf8");
+  assert.match(routesSource, /nodemgtTabFromAdminPath\(pathname\)/);
+  assert.match(routesSource, /nodemgtPrimaryMethods/);
+  const { api } = loadPrefetch("ok");
+  assert.equal(api.nodemgtTabFromAdminPath("/admin/nodemgt/forwarding"), "chains");
+  assert.equal(api.nodemgtTabFromAdminPath("/admin/nodemgt/inbounds"), "inbounds");
+  assert.equal(api.nodemgtPrimaryMethods("chains")[0], "admin:nodemgt.chain.list");
+});
+
 test("prefetch does not cache a failed RPC batch as a fresh snapshot", () => {
   assert.match(prefetchSource, /errors\.set\(request\.method, error\)/);
   assert.match(prefetchSource, /remember\(rest\.length === 0 && errors\.size === 0\)/);
@@ -111,7 +124,7 @@ test("prefetch throws later caller's primary errors on a shared in-flight batch"
   assert.equal(usersResult.rejected, false);
   assert.equal(certsResult.rejected, true);
   assert.match(String(certsResult.error), /admin:nodemgt\.cert\.list/);
-  assert.equal(requests.length, 14);
+  assert.equal(requests.length, 15);
   assert.equal(api.getNodemgtSnapshot()?.at > 0, false);
 });
 
@@ -139,7 +152,7 @@ test("reload waits for the in-flight batch then fetches again", async () => {
   const [firstResult, reloadResult] = await Promise.all([first, reload]);
   assert.equal(firstResult.rejected, false);
   assert.equal(reloadResult.rejected, false);
-  assert.equal(requests.length, 28);
+  assert.equal(requests.length, 30);
 });
 
 test("prefetch retries a transient Failed to fetch on the primary list", async () => {

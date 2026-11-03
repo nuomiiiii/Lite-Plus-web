@@ -248,6 +248,19 @@ export function normalizeExpiryInput(raw: string) {
 }
 
 const NODEMGT_RPC_ERROR_RULES: Array<[RegExp, string]> = [
+  [/chain_landing_required/i, "nodemgt.chain_landing_required"],
+  [/chain_backup_required/i, "nodemgt.chain_backup_required"],
+  [/chain_pool_required/i, "nodemgt.chain_pool_required"],
+  [/chain_source_required/i, "nodemgt.chain_source_required"],
+  [/chain_same_inbound/i, "nodemgt.chain_same_inbound"],
+  [/chain_core_mismatch/i, "nodemgt.chain_core_mismatch"],
+  [/chain_source_in_use/i, "nodemgt.chain_source_in_use"],
+  [/chain_route_in_use/i, "nodemgt.chain_route_in_use"],
+  [/chain_outbound_in_use/i, "nodemgt.chain_outbound_in_use"],
+  [/chain_in_use/i, "nodemgt.chain_in_use"],
+  [/chain_cycle/i, "nodemgt.chain_cycle"],
+  [/chain_no_address/i, "nodemgt.chain_no_address"],
+  [/chain_managed/i, "nodemgt.chain_managed"],
   [/outbound_tag_reserved|outbound tag reserved/i, "nodemgt.outbound_tag_reserved"],
   [/outbound_tag_duplicate|(?:conflict:.*)?outbound tag\b/i, "nodemgt.outbound_tag_duplicate"],
   [/built-in https certificate required/i, "nodemgt.sub_reuse_https_missing"],

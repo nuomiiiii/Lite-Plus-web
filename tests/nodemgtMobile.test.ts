@@ -7,7 +7,11 @@ const source = readFileSync(new URL("../src/pages/admin/nodemgt/index.tsx", impo
 test("new inbound sheet starts with sniffing off", () => {
   assert.match(source, /inbound: inboundForm\(\)/);
   assert.match(source, /sniffing: existing && \(row\.sniffing === true \|\| row\.sniffing === "true"\) \? "true" : "false"/);
-  assert.match(source, /node_uuid: nodeFilter \|\| ""/);
+  assert.match(source, /node_uuid: nodeFilterUUID/);
+  assert.match(source, /<AdminMultiSelect/);
+  assert.match(source, /filtersByTab/);
+  assert.match(source, /<AdminActiveFilters/);
+  assert.match(source, /key=\{tab\}/);
   assert.match(source, /nodemgt\.random_port/);
   assert.match(source, /nodemgt\.random_short_id/);
   assert.match(source, /uuidForInbound\(inbound, users\)/);

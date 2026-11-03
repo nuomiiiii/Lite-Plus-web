@@ -22,12 +22,13 @@ import {
   AdminPagination,
   useAdminPagination,
 } from "@/components/admin/AdminPagination";
+import { AdminActiveFilters } from "@/components/admin/AdminActiveFilters";
+import AdminMultiSelect from "@/components/admin/AdminMultiSelect";
 import {
   AdminListFiltersBar,
   AdminListSearch,
   AdminListShell,
 } from "@/components/admin/AdminListShell";
-import { ADMIN_LIST_FIELD_SX } from "@/components/admin/adminListLayout";
 import { AdminMobileCardStack, AdminMobileListCard } from "@/components/admin/AdminMobileListCard";
 import SettingsSheetDialog, {
   SettingsSheetActions,
@@ -111,6 +112,7 @@ import SubscriptionTemplates from "./subscriptionTemplates";
 type TabKey =
   | "overview"
   | "inbounds"
+  | "chains"
   | "outbounds"
   | "routes"
   | "users"
@@ -119,15 +121,18 @@ type TabKey =
   | "subscriptions"
   | "audit";
 
-type SheetKind = "inbound" | "user" | "plan" | "cert" | "subscription" | "outbound" | "route" | "node";
+type SheetKind = "inbound" | "user" | "plan" | "cert" | "subscription" | "outbound" | "route" | "chain" | "node";
 type FormMap = Record<string, string>;
 const FIREWALL_GRANT_SCOPE = "nodemgt-firewall";
+const EMPTY_LIST_FILTERS = { search: "", nodes: [] as string[] };
+type ListFilters = { search: string; nodes: string[] };
 
 const NODE_TABS: Record<string, TabKey> = {
   "": "overview",
   "/overview": "overview",
   "/inbounds": "inbounds",
-  "/forwarding": "outbounds",
+  "/forwarding": "chains",
+  "/chains": "chains",
   "/outbounds": "outbounds",
   "/routes": "routes",
   "/users": "users",
@@ -320,7 +325,7 @@ function upsertedRow(kind: SheetKind, raw: any) {
   return stripFirewallGrantFields(raw);
 }
 
-const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "nodes"> = {
+const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "chains" | "nodes"> = {
   inbound: "inbounds",
   user: "users",
   plan: "plans",
@@ -328,10 +333,11 @@ const SNAPSHOT_LIST_KEY: Record<SheetKind, "inbounds" | "users" | "plans" | "cer
   subscription: "subs",
   outbound: "outbounds",
   route: "routes",
+  chain: "chains",
   node: "nodes",
 };
 
-const DELETE_LIST_KEY: Record<string, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes"> = {
+const DELETE_LIST_KEY: Record<string, "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "chains"> = {
   "admin:nodemgt.inbound.delete": "inbounds",
   "admin:nodemgt.user.delete": "users",
   "admin:nodemgt.plan.delete": "plans",
@@ -339,6 +345,7 @@ const DELETE_LIST_KEY: Record<string, "inbounds" | "users" | "plans" | "certs" |
   "admin:nodemgt.subscription.delete": "subs",
   "admin:nodemgt.outbound.delete": "outbounds",
   "admin:nodemgt.route.delete": "routes",
+  "admin:nodemgt.chain.delete": "chains",
 };
 
 function str(value: unknown, fallback = "") {
@@ -847,6 +854,173 @@ function routeForm(row?: any): FormMap {
   };
 }
 
+function csvIDs(raw: string) {
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function chainStrategyOf(raw?: string) {
+  const value = str(raw).toLowerCase();
+  if (value === "urltest") return "urltest";
+  if (value === "failover") return "failover";
+  return "none";
+}
+
+function chainStrategyFields(form: FormMap, strategy: string): FormMap {
+  const current = chainStrategyOf(form.strategy);
+  const primary = csvIDs(form.landing_inbound_ids)[0] || "";
+  const fallback = form.fallback_direct === "true" ? "true" : "false";
+  if (strategy === "none") {
+    return { strategy, landing_inbound_ids: primary, backup_id: "", fallback_direct: "false" };
+  }
+  if (strategy === "failover") {
+    if (current === "urltest") {
+      return { strategy, landing_inbound_ids: "", backup_id: "", fallback_direct: fallback };
+    }
+    const backup = form.backup_id && form.backup_id !== primary ? form.backup_id : "";
+    return {
+      strategy,
+      landing_inbound_ids: primary,
+      backup_id: backup,
+      fallback_direct: backup === "direct" ? "false" : fallback,
+    };
+  }
+  if (current === "failover") {
+    return { strategy, landing_inbound_ids: "", backup_id: "", fallback_direct: fallback };
+  }
+  return { strategy, landing_inbound_ids: primary, backup_id: "", fallback_direct: fallback };
+}
+
+function chainForm(row?: any): FormMap {
+  const landings = Array.isArray(row?.landings)
+    ? row.landings.map((item: any) => str(item?.landing_inbound_id)).filter(Boolean)
+    : csvIDs(str(row?.landing_inbound_ids));
+  const sources = Array.isArray(row?.sources)
+    ? row.sources.map((item: any) => str(item?.source_inbound_id)).filter(Boolean)
+    : csvIDs(str(row?.source_inbound_ids));
+  const strategy = chainStrategyOf(row?.strategy);
+  const backupDirect = row?.backup_direct === true;
+  const backupId = strategy === "failover" ? (backupDirect ? "direct" : landings[1] || "") : "";
+  const storedLandings = strategy === "urltest" ? landings : landings.slice(0, 1);
+  return {
+    id: str(row?.id),
+    name: str(row?.name),
+    landing_inbound_ids: storedLandings.join(","),
+    source_inbound_ids: sources.join(","),
+    strategy,
+    backup_id: backupId,
+    fallback_direct: row?.fallback_direct === true ? "true" : "false",
+    enabled: row?.enabled === false ? "false" : "true",
+  };
+}
+
+function chainLandingIDs(form: FormMap) {
+  const strategy = chainStrategyOf(form.strategy);
+  const ids = csvIDs(form.landing_inbound_ids);
+  if (strategy === "none") return ids.slice(0, 1);
+  if (strategy === "failover") {
+    const primary = ids[0] || "";
+    if (!primary) return [];
+    if (form.backup_id === "direct" || !form.backup_id) return [primary];
+    if (form.backup_id === primary) return [primary];
+    return [primary, form.backup_id];
+  }
+  return ids;
+}
+
+function chainBackupDirect(form: FormMap) {
+  return chainStrategyOf(form.strategy) === "failover" && form.backup_id === "direct";
+}
+
+function chainShowsFallback(form: FormMap) {
+  const strategy = chainStrategyOf(form.strategy);
+  if (strategy === "urltest") return true;
+  return strategy === "failover" && form.backup_id !== "direct";
+}
+
+function chainFallbackCopyKey(form: FormMap, kind: "title" | "help") {
+  const urltest = chainStrategyOf(form.strategy) === "urltest";
+  if (kind === "title") return urltest ? "nodemgt.chain_fallback_all" : "nodemgt.chain_fallback_direct";
+  return urltest ? "nodemgt.chain_fallback_all_help" : "nodemgt.chain_fallback_direct_help";
+}
+
+function chainStrategyLabelKey(strategy?: string) {
+  const value = chainStrategyOf(strategy);
+  if (value === "urltest") return "nodemgt.chain_strategy_urltest";
+  if (value === "failover") return "nodemgt.chain_strategy_failover";
+  return "nodemgt.chain_strategy_none";
+}
+
+function chainUpsertBody(form: FormMap, enabled?: boolean) {
+  return {
+    id: form.id || undefined,
+    name: form.name,
+    strategy: chainStrategyOf(form.strategy),
+    backup_direct: chainBackupDirect(form),
+    fallback_direct: chainShowsFallback(form) && form.fallback_direct === "true",
+    landing_inbound_ids: chainLandingIDs(form),
+    source_inbound_ids: csvIDs(form.source_inbound_ids),
+    enabled: enabled ?? form.enabled !== "false",
+  };
+}
+
+function chainManaged(row?: any) {
+  if (row?.chain_managed === true) return true;
+  const raw = str(row?.settings_json || row?.rule_json);
+  if (!raw) return false;
+  try {
+    return JSON.parse(raw)?.chain_managed === true;
+  } catch {
+    return false;
+  }
+}
+
+function chainSourceInboundIDs(rows: any[]) {
+  const ids = new Set<string>();
+  for (const row of rows || []) {
+    for (const item of Array.isArray(row?.sources) ? row.sources : []) {
+      const id = str(item?.source_inbound_id);
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function inboundBusyOutsideChain(routes: any[], outbounds: any[]) {
+  const routeIDs = new Set<string>();
+  const outboundIDs = new Set<string>();
+  for (const row of routes || []) {
+    if (chainManaged(row)) continue;
+    const id = str(row?.inbound_id);
+    if (id) routeIDs.add(id);
+  }
+  for (const row of outbounds || []) {
+    if (chainManaged(row)) continue;
+    for (const key of ["source_inbound_id", "landing_inbound_id"]) {
+      const id = str(row?.[key]);
+      if (id) outboundIDs.add(id);
+    }
+    const raw = str(row?.settings_json);
+    if (!raw) continue;
+    try {
+      const settings = JSON.parse(raw);
+      for (const key of ["source_inbound_id", "landing_inbound_id"]) {
+        const id = str(settings?.[key]);
+        if (id) outboundIDs.add(id);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return { routeIDs, outboundIDs, all: new Set<string>([...routeIDs, ...outboundIDs]) };
+}
+
+function chainOnNode(row: any, nodeUUIDs: string[]) {
+  if (!nodeUUIDs.length) return true;
+  const landings = Array.isArray(row?.landings) ? row.landings : [];
+  const sources = Array.isArray(row?.sources) ? row.sources : [];
+  return landings.some((item: any) => nodeUUIDs.includes(item?.landing_node_uuid)) || sources.some((item: any) => nodeUUIDs.includes(item?.source_node_uuid));
+}
+
 function inboundSortIndexValue(raw: unknown): number | undefined {
   const text = String(raw ?? "").trim();
   if (text === "") return undefined;
@@ -1332,7 +1506,20 @@ function SearchableSelect({
       autoHighlight
       sx={sx ?? sheetAutocompleteSx}
       renderInput={(params) => (
-        <TextField {...params} size="small" label={label} helperText={helper} sx={sheetInputSx} />
+        <TextField
+          {...params}
+          size="small"
+          label={label}
+          helperText={helper}
+          sx={sheetInputSx}
+          slotProps={{
+            ...params.slotProps,
+            inputLabel: {
+              ...(typeof params.slotProps.inputLabel === "object" ? params.slotProps.inputLabel : {}),
+              shrink: open || Boolean(selected),
+            },
+          }}
+        />
       )}
     />
   );
@@ -1403,14 +1590,18 @@ function SearchableMultiSelect({
   onChange,
   options,
   helper,
+  ordered = false,
 }: {
   label: string;
   value: string[];
   onChange: (value: string[]) => void;
   options: SelectOption[];
   helper?: string;
+  ordered?: boolean;
 }) {
-  const selected = options.filter((option) => value.includes(option.value));
+  const selected = ordered
+    ? value.map((id) => options.find((option) => option.value === id)).filter((option): option is SelectOption => Boolean(option))
+    : options.filter((option) => value.includes(option.value));
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   return (
@@ -1493,6 +1684,7 @@ function MultiSelectField({
   helper,
   emptyLabel,
   searchable = false,
+  ordered = false,
 }: {
   label: string;
   value: string[];
@@ -1501,6 +1693,7 @@ function MultiSelectField({
   helper?: string;
   emptyLabel?: string;
   searchable?: boolean;
+  ordered?: boolean;
 }) {
   if (searchable) {
     return (
@@ -1510,6 +1703,7 @@ function MultiSelectField({
         onChange={onChange}
         options={options}
         helper={helper}
+        ordered={ordered}
       />
     );
   }
@@ -1547,33 +1741,6 @@ function MultiSelectField({
         </MenuItem>
       ))}
     </TextField>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-}) {
-  return (
-    <SearchableSelect
-      label={label}
-      value={value}
-      onChange={onChange}
-      options={options}
-      sx={{
-        ...ADMIN_LIST_FIELD_SX,
-        ...sheetAutocompleteSx,
-        minWidth: { xs: 0, md: 220 },
-        flex: { xs: "1 1 calc(50% - 12px)", md: "0 1 260px" },
-      }}
-    />
   );
 }
 
@@ -2014,11 +2181,19 @@ function deliveryStatusOf(row?: any) {
   return raw || "not_started";
 }
 
+function parseStamp(value: unknown) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
 function inboundTouched(row?: any, cmd?: any) {
   if (!cmd) return false;
-  const rowAt = Date.parse(String(row?.updated_at || ""));
-  const cmdAt = Date.parse(String(cmd?.created_at || cmd?.updated_at || ""));
-  if (!Number.isFinite(rowAt) || !Number.isFinite(cmdAt)) return true;
+  const rowAt = parseStamp(row?.updated_at);
+  const cmdAt = parseStamp(cmd?.created_at || cmd?.updated_at);
+  if (!Number.isFinite(rowAt)) return false;
+  if (!Number.isFinite(cmdAt)) return true;
   return rowAt >= cmdAt - 8000;
 }
 
@@ -2028,6 +2203,26 @@ function inboundDeliveryOf(row?: any, cmd?: any) {
   if (inboundTouched(row, cmd)) return status;
   if (status === "sent" || status === "saved") return "applied";
   return status;
+}
+
+function userNodeIDs(row: any, inboundRows: any[]) {
+  const ids = new Set<string>();
+  const home = str(row?.node_uuid);
+  if (home) ids.add(home);
+  const granted = Array.isArray(row?.inbound_ids) ? row.inbound_ids : [];
+  for (const inboundID of granted) {
+    const inbound = inboundRows.find((item) => str(item?.id) === str(inboundID));
+    const nodeUUID = str(inbound?.node_uuid);
+    if (nodeUUID) ids.add(nodeUUID);
+  }
+  return [...ids];
+}
+
+function userDeliveryCmd(row: any, inboundRows: any[], commands: any[]) {
+  const cmds = userNodeIDs(row, inboundRows)
+    .map((id) => commands.find((item) => str(item?.node_uuid) === id))
+    .filter(Boolean);
+  return cmds.find((cmd) => inboundTouched(row, cmd)) || cmds[0];
 }
 
 function InboundOverflow({ names }: { names: string[] }) {
@@ -2185,6 +2380,7 @@ export default function PlusAdminPage() {
   const [subs, setSubs] = useState<any[]>(() => cached?.subs ?? []);
   const [outbounds, setOutbounds] = useState<any[]>(() => cached?.outbounds ?? []);
   const [routes, setRoutes] = useState<any[]>(() => cached?.routes ?? []);
+  const [chains, setChains] = useState<any[]>(() => cached?.chains ?? []);
   const [nodeProfiles, setNodeProfiles] = useState<any[]>(() => cached?.nodes ?? []);
   const [audit, setAudit] = useState<any[]>(() => cached?.audit ?? []);
   const [diag, setDiag] = useState<any>(() => cached?.diag ?? {});
@@ -2202,8 +2398,29 @@ export default function PlusAdminPage() {
   const [certPage, setCertPage] = useState<"list" | "issuer">("list");
   const [loading, setLoading] = useState(() => !cached);
   const firstLoad = useRef(!cached);
-  const [search, setSearch] = useState("");
-  const [nodeFilter, setNodeFilter] = useState("");
+  const [filtersByTab, setFiltersByTab] = useState<Partial<Record<TabKey, ListFilters>>>({});
+  const tabFilters = filtersByTab[tab] ?? EMPTY_LIST_FILTERS;
+  const search = tabFilters.search;
+  const nodeFilter = tabFilters.nodes;
+  const setSearch = (value: string) => {
+    setFiltersByTab((current) => {
+      const prev = current[tab] ?? EMPTY_LIST_FILTERS;
+      if (prev.search === value) return current;
+      return { ...current, [tab]: { search: value, nodes: prev.nodes } };
+    });
+  };
+  const setNodeFilter = (nodes: string[]) => {
+    setFiltersByTab((current) => {
+      const prev = current[tab] ?? EMPTY_LIST_FILTERS;
+      if (prev.nodes.length === nodes.length && prev.nodes.every((id, index) => id === nodes[index])) return current;
+      return { ...current, [tab]: { search: prev.search, nodes } };
+    });
+  };
+  const clearTabFilters = () => {
+    setFiltersByTab((current) => ({ ...current, [tab]: EMPTY_LIST_FILTERS }));
+  };
+  const showNodeFilter =
+    tab === "overview" || tab === "inbounds" || tab === "chains" || tab === "outbounds" || tab === "routes" || tab === "certs";
   const [sheet, setSheet] = useState<{ kind: SheetKind; form: FormMap } | null>(null);
   const [sheetTab, setSheetTab] = useState("basic");
   const [saving, setSaving] = useState(false);
@@ -2326,6 +2543,7 @@ export default function PlusAdminPage() {
     setSubs(snap.subs);
     setOutbounds(snap.outbounds);
     setRoutes(snap.routes);
+    setChains(snap.chains || []);
     setNodeProfiles((snap.nodes || []).map((row) => ({ ...row, id: str(row?.node_uuid || row?.id) })));
     setAudit(snap.audit);
     setDiag(snap.diag);
@@ -2341,7 +2559,7 @@ export default function PlusAdminPage() {
   }, []);
 
   const commitRows = useCallback((
-    key: "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "nodes",
+    key: "inbounds" | "users" | "plans" | "certs" | "subs" | "outbounds" | "routes" | "chains" | "nodes",
     mutate: (rows: any[]) => any[],
   ) => {
     const patch = (current: any[]) => {
@@ -2370,6 +2588,9 @@ export default function PlusAdminPage() {
         break;
       case "routes":
         setRoutes(patch);
+        break;
+      case "chains":
+        setChains(patch);
         break;
       case "nodes":
         setNodeProfiles(patch);
@@ -2481,7 +2702,8 @@ export default function PlusAdminPage() {
     if (!q) return true;
     return keys.some((key) => str(row[key]).toLowerCase().includes(q));
   };
-  const matchNode = (row: any) => !nodeFilter || row.node_uuid === nodeFilter;
+  const matchNode = (row: any) => !nodeFilter.length || nodeFilter.includes(row.node_uuid);
+  const nodeFilterUUID = nodeFilter.length === 1 ? nodeFilter[0] : "";
 
   const visibleInbounds = inbounds
     .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
@@ -2491,11 +2713,15 @@ export default function PlusAdminPage() {
   const visiblePlans = plans.filter((row) => matchSearch(row, ["name"]));
   const visibleCerts = certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"]));
   const visibleSubs = subs.filter((row) => matchSearch(row, ["user_id", "format", "token"]));
-  const visibleOutbounds = outbounds.filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
+  const visibleOutbounds = outbounds.filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
   const visibleRoutes = routes
-    .filter((row) => matchNode(row) && matchSearch(row, ["name", "domain"]))
+    .filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "domain"]))
     .slice()
     .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || byCreatedAt(a, b));
+  const visibleChains = chains
+    .filter((row) => chainOnNode(row, nodeFilter) && matchSearch({ name: row.name, landing_names: (row.landing_names || []).join(" "), source_names: (row.source_names || []).join(" ") }, ["name", "landing_names", "source_names"]))
+    .slice()
+    .sort(byCreatedAt);
   const visibleAudit = audit.filter((row) => matchSearch(row, ["actor", "action", "target"]));
   const diagRows = Array.isArray(diag.commands) && diag.commands.length ? diag.commands : delivery;
   const diagPending = diagRows.filter((row: any) => {
@@ -2504,7 +2730,7 @@ export default function PlusAdminPage() {
   }).length;
   const diagFailed = diagRows.filter((row: any) => deliveryStatusOf(row) === "failed").length;
   const overviewRows = nodeOptions
-    .filter((node) => !nodeFilter || node.value === nodeFilter)
+    .filter((node) => !nodeFilter.length || nodeFilter.includes(node.value))
     .filter((node) => matchSearch({ name: node.label }, ["name"]))
     .map((node) => {
       const cmd = nodeDelivery(node.value);
@@ -2525,10 +2751,12 @@ export default function PlusAdminPage() {
   const listRows =
     tab === "inbounds"
       ? visibleInbounds
-      : tab === "outbounds"
-        ? visibleOutbounds
-        : tab === "routes"
-          ? visibleRoutes
+      : tab === "chains"
+        ? visibleChains
+        : tab === "outbounds"
+          ? visibleOutbounds
+          : tab === "routes"
+            ? visibleRoutes
           : tab === "users"
             ? visibleUsers
             : tab === "plans"
@@ -2550,15 +2778,40 @@ export default function PlusAdminPage() {
     value: row.id,
     label: `${row.name} · ${row.protocol} :${row.port}`,
   }));
+  const forwardingSourceInboundIDs = chainSourceInboundIDs(chains);
+  const inboundBusyElsewhere = inboundBusyOutsideChain(routes, outbounds).all;
   const inboundSourceOptions = inbounds
-    .filter((row) => row.enabled !== false && isProxyOutbound(row.protocol))
+    .filter((row) => row.enabled !== false && isProxyOutbound(row.protocol) && (!forwardingSourceInboundIDs.has(row.id) || row.id === sheet?.form.source_inbound_id))
     .map((row) => ({
       value: row.id,
       label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
     }));
+  const chainInboundOptions = inbounds
+    .filter((row) => isProxyOutbound(row.protocol))
+    .map((row) => ({
+      value: row.id,
+      label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
+    }));
+  const busyChainSources = new Set(
+    chains.flatMap((row) => {
+      if (sheet?.kind === "chain" && str(row.id) === str(sheet.form.id)) return [];
+      return (Array.isArray(row.sources) ? row.sources : []).map((item: any) => str(item?.source_inbound_id));
+    }),
+  );
+  const chainLandingIDsInForm = new Set([
+    ...csvIDs(sheet?.form.landing_inbound_ids || ""),
+    sheet?.form.backup_id && sheet.form.backup_id !== "direct" ? sheet.form.backup_id : "",
+  ].filter(Boolean));
+  const chainFormInboundIDs = new Set([...csvIDs(sheet?.form.source_inbound_ids || ""), ...chainLandingIDsInForm]);
+  const chainLandingOptions = chainInboundOptions.filter((item) => !csvIDs(sheet?.form.source_inbound_ids || "").includes(item.value));
+  const chainSourceOptions = chainInboundOptions.filter((item) => !chainLandingIDsInForm.has(item.value) && (!busyChainSources.has(item.value) || csvIDs(sheet?.form.source_inbound_ids || "").includes(item.value)) && (!inboundBusyElsewhere.has(item.value) || chainFormInboundIDs.has(item.value)));
+  const chainBackupOptions = [
+    { value: "direct", label: t("nodemgt.builtin_direct") },
+    ...chainLandingOptions.filter((item) => item.value !== csvIDs(sheet?.form.landing_inbound_ids || "")[0]),
+  ];
   const userOptions = users.map((row) => ({ value: row.id, label: row.username || row.id }));
   const planOptions = [{ value: "", label: t("nodemgt.plan_none") }, ...plans.map((row) => ({ value: row.id, label: row.name }))];
-  const outboundOptions = outbounds.map((row) => ({ value: row.id, label: row.name }));
+  const outboundOptions = outbounds.filter((row) => !chainManaged(row)).map((row) => ({ value: row.id, label: row.name }));
   const builtinOutboundOptions = [
     { value: "direct", label: t("nodemgt.builtin_direct") },
     { value: "block", label: t("nodemgt.builtin_block") },
@@ -2571,14 +2824,16 @@ export default function PlusAdminPage() {
       : inboundStackOptions[0] || sheet?.form.stack) || "";
   const nodeInboundOptions = inboundOptions.filter((item) => {
     const row = inbounds.find((inbound) => inbound.id === item.value);
-    return !sheetNode || row?.node_uuid === sheetNode;
+    if (sheetNode && row?.node_uuid !== sheetNode) return false;
+    if (sheet?.kind === "route" && forwardingSourceInboundIDs.has(item.value) && item.value !== sheet.form.inbound_id) return false;
+    return true;
   });
   const nodeOutboundOptions = outboundOptions.filter((item) => {
     const row = outbounds.find((outbound) => outbound.id === item.value);
     return !sheetNode || row?.node_uuid === sheetNode;
   });
   const viaOutboundOptions = outbounds
-    .filter((row) => (!sheetNode || row.node_uuid === sheetNode) && row.name && row.name !== sheet?.form.name)
+    .filter((row) => !chainManaged(row) && (!sheetNode || row.node_uuid === sheetNode) && row.name && row.name !== sheet?.form.name)
     .map((row) => ({ value: row.name, label: row.name }));
   const issuedRoots = rootCerts.filter((row) => row.status === "issued" || row.id === sheet?.form.root_cert_id);
   const issuedCerts = certs.filter(
@@ -2642,6 +2897,10 @@ export default function PlusAdminPage() {
       setForm({ source_inbound_id: "" });
       return;
     }
+    if (forwardingSourceInboundIDs.has(inboundId)) {
+      toast.error(t("nodemgt.chain_in_use"));
+      return;
+    }
     const inbound = inbounds.find((row) => row.id === inboundId);
     if (!inbound) {
       setForm({ source_inbound_id: inboundId });
@@ -2682,11 +2941,12 @@ export default function PlusAdminPage() {
       inbound: inboundForm(),
       user: userForm({}),
       plan: planForm({}),
-      cert: certForm({ node_uuid: nodeFilter }),
+      cert: certForm({ node_uuid: nodeFilterUUID }),
       subscription: subscriptionForm({}),
       outbound: outboundForm({}),
       route: routeForm({}),
-      node: nodeForm({ node_uuid: nodeFilter }),
+      chain: chainForm({}),
+      node: nodeForm({ node_uuid: nodeFilterUUID }),
     };
     setError("");
     setImportLink("");
@@ -2703,6 +2963,7 @@ export default function PlusAdminPage() {
       subscription: subscriptionForm(row),
       outbound: outboundForm(row),
       route: routeForm(row),
+      chain: chainForm(row),
       node: nodeForm(row),
     };
     setError("");
@@ -2932,13 +3193,51 @@ export default function PlusAdminPage() {
           setError(t("nodemgt.outbound_tag_duplicate"));
           return;
         }
+        if (form.source_inbound_id && forwardingSourceInboundIDs.has(form.source_inbound_id)) {
+          setError(t("nodemgt.chain_in_use"));
+          return;
+        }
         saved = await call("admin:nodemgt.outbound.upsert", outboundUpsertBody(form));
       } else if (sheet.kind === "route") {
         if (!form.outbound_id) {
           setError(t("nodemgt.route_outbound_required"));
           return;
         }
+        if (form.inbound_id && forwardingSourceInboundIDs.has(form.inbound_id)) {
+          setError(t("nodemgt.chain_in_use"));
+          return;
+        }
         saved = await call("admin:nodemgt.route.upsert", routeUpsertBody(form));
+      } else if (sheet.kind === "chain") {
+        const strategy = chainStrategyOf(form.strategy);
+        const landingIDs = chainLandingIDs(form);
+        const sourceIDs = csvIDs(form.source_inbound_ids);
+        if (!landingIDs.length) {
+          setError(t("nodemgt.chain_landing_required"));
+          return;
+        }
+        if (!sourceIDs.length) {
+          setError(t("nodemgt.chain_source_required"));
+          return;
+        }
+        if (strategy === "failover" && !form.backup_id) {
+          setError(t("nodemgt.chain_backup_required"));
+          return;
+        }
+        if (strategy === "urltest" && landingIDs.length < 2) {
+          setError(t("nodemgt.chain_pool_required"));
+          return;
+        }
+        const busy = inboundBusyOutsideChain(routes, outbounds);
+        if (sourceIDs.some((id) => busy.routeIDs.has(id))) {
+          setError(t("nodemgt.chain_route_in_use"));
+          return;
+        }
+        if (sourceIDs.some((id) => busy.outboundIDs.has(id))) {
+          setError(t("nodemgt.chain_outbound_in_use"));
+          return;
+        }
+        saved = await call("admin:nodemgt.chain.upsert", chainUpsertBody(form));
       } else if (sheet.kind === "node") {
         if (!form.node_uuid) {
           setError(t("nodemgt.node_help"));
@@ -2951,8 +3250,8 @@ export default function PlusAdminPage() {
       }
       const row = upsertedRow(sheet.kind, saved);
       if (row) commitRows(SNAPSHOT_LIST_KEY[sheet.kind], (rows) => mergeById(rows, row));
-      const nodeUUID = form.node_uuid;
-      const syncsNode = sheet.kind === "inbound" || sheet.kind === "outbound" || sheet.kind === "route" || sheet.kind === "user" || sheet.kind === "cert" || sheet.kind === "node";
+      const nodeUUID = form.node_uuid || (sheet.kind === "chain" ? str(saved?.sources?.[0]?.source_node_uuid || saved?.landings?.[0]?.landing_node_uuid) : "");
+      const syncsNode = sheet.kind === "inbound" || sheet.kind === "outbound" || sheet.kind === "route" || sheet.kind === "chain" || sheet.kind === "user" || sheet.kind === "cert" || sheet.kind === "node";
       closeSheet();
       const rows = await loadAfterChange();
       if (syncsNode) toastAfterSync(nodeUUID, rows);
@@ -2994,7 +3293,7 @@ export default function PlusAdminPage() {
     }
   };
 
-  const toggleRowEnabled = async (kind: "inbound" | "outbound" | "route" | "subscription", row: any, enabled: boolean, firewallGrant?: string) => {
+  const toggleRowEnabled = async (kind: "inbound" | "outbound" | "route" | "chain" | "subscription", row: any, enabled: boolean, firewallGrant?: string) => {
     const formEnabled = enabled ? "true" : "false";
     try {
       let saved: any;
@@ -3024,6 +3323,8 @@ export default function PlusAdminPage() {
         saved = await call("admin:nodemgt.outbound.upsert", outboundUpsertBody({ ...outboundForm(row), enabled: formEnabled }));
       } else if (kind === "route") {
         saved = await call("admin:nodemgt.route.upsert", routeUpsertBody({ ...routeForm(row), enabled: formEnabled }));
+      } else if (kind === "chain") {
+        saved = await call("admin:nodemgt.chain.upsert", chainUpsertBody(chainForm(row), enabled));
       } else {
         saved = await call("admin:nodemgt.subscription.upsert", subscriptionUpsertBody({ ...subscriptionForm(row), enabled: formEnabled }));
       }
@@ -3215,7 +3516,7 @@ export default function PlusAdminPage() {
 
   const reorderInbound = async (row: any, dir: -1 | 1) => {
     const pool = inbounds
-      .filter((item) => !nodeFilter || item.node_uuid === nodeFilter)
+      .filter((item) => !nodeFilter.length || nodeFilter.includes(item.node_uuid))
       .slice()
       .sort(
         (a, b) =>
@@ -3225,7 +3526,7 @@ export default function PlusAdminPage() {
     const ids = moveAdjacentIDs(pool, row.id, dir);
     if (!ids) return;
     try {
-      await call("admin:nodemgt.inbound.reorder", { node_uuid: nodeFilter || "", ids });
+      await call("admin:nodemgt.inbound.reorder", { node_uuid: nodeFilterUUID, ids });
       await loadAfterChange();
     } catch (err) {
       toast.error(nodemgtErrorMessage(err, t));
@@ -3260,6 +3561,7 @@ export default function PlusAdminPage() {
   const pendingCerts = certs.filter((row) => row.status === "pending" || row.status === "failed").length;
   const canCreate =
     tab === "inbounds" ||
+    tab === "chains" ||
     tab === "outbounds" ||
     tab === "routes" ||
     tab === "users" ||
@@ -3578,12 +3880,13 @@ export default function PlusAdminPage() {
       <AdminListShell>
           <AdminListFiltersBar>
             <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, alignItems: "center" }}>
-              {tab === "overview" || tab === "inbounds" || tab === "outbounds" || tab === "routes" || tab === "certs" ? (
-                <FilterSelect
+              {showNodeFilter ? (
+                <AdminMultiSelect
                   label={t("nodemgt.col_node")}
+                  ariaLabel={t("nodemgt.col_node")}
                   value={nodeFilter}
                   onChange={setNodeFilter}
-                  options={[{ value: "", label: t("nodemgt.all_nodes") }, ...nodeOptions]}
+                  options={nodeOptions}
                 />
               ) : null}
               <AdminListSearch value={search} onChange={setSearch} placeholder={t("nodemgt.search")} />
@@ -3595,10 +3898,12 @@ export default function PlusAdminPage() {
                       openCreate(
                         tab === "inbounds"
                           ? "inbound"
-                          : tab === "outbounds"
-                            ? "outbound"
-                            : tab === "routes"
-                              ? "route"
+                          : tab === "chains"
+                            ? "chain"
+                            : tab === "outbounds"
+                              ? "outbound"
+                              : tab === "routes"
+                                ? "route"
                               : tab === "users"
                                 ? "user"
                                 : tab === "plans"
@@ -3612,8 +3917,29 @@ export default function PlusAdminPage() {
                 </Stack>
               ) : null}
             </Stack>
+            <AdminActiveFilters
+              resultCount={listRows.length}
+              onClearAll={clearTabFilters}
+              chips={[
+                ...nodeFilter.map((uuid) => ({
+                  key: `node-${uuid}`,
+                  onDelete: () => setNodeFilter(nodeFilter.filter((id) => id !== uuid)),
+                  label: `${t("nodemgt.col_node")}: ${nodeName(uuid)}`,
+                })),
+                ...(search.trim()
+                  ? [
+                      {
+                        key: "search",
+                        onDelete: () => setSearch(""),
+                        label: `${t("common.search", "搜索")}: ${search.trim()}`,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           </AdminListFiltersBar>
 
+          <Box className="admin-tab-panel">
           {tab === "inbounds" ? (
             <RecordTable
               id="inbounds"
@@ -3644,6 +3970,63 @@ export default function PlusAdminPage() {
                         <Pencil size={16} />
                       </IconButton>
                       <DeleteButton onClick={() => void removeRow("admin:nodemgt.inbound.delete", row.id)} />
+                    </RowActions>
+                  ),
+                },
+              ]}
+            />
+          ) : tab === "chains" ? (
+            <RecordTable
+              id="chains"
+              empty={t("nodemgt.empty")}
+              loading={loading}
+              rows={listPager.pageItems}
+              columns={[
+                { key: "name", label: t("nodemgt.col_name"), width: "16%", render: (row) => <CellEllipsis value={str(row.name)} /> },
+                {
+                  key: "sources",
+                  label: t("nodemgt.col_sources"),
+                  width: "22%",
+                  render: (row) => <InboundOverflow names={row.source_names || []} />,
+                },
+                {
+                  key: "landings",
+                  label: t("nodemgt.col_landings"),
+                  width: "22%",
+                  render: (row) => <InboundOverflow names={row.landing_names || []} />,
+                },
+                {
+                  key: "strategy",
+                  label: t("nodemgt.chain_strategy"),
+                  width: "10%",
+                  render: (row) => t(chainStrategyLabelKey(row.strategy)),
+                },
+                {
+                  key: "backup",
+                  label: t("nodemgt.chain_backup"),
+                  width: "10%",
+                  render: (row) => {
+                    if (chainStrategyOf(row.strategy) !== "failover") return "—";
+                    if (row.backup_direct) return t("nodemgt.builtin_direct");
+                    return str((row.landing_names || [])[1], "—");
+                  },
+                },
+                {
+                  key: "fallback",
+                  label: t("nodemgt.chain_fallback_col"),
+                  width: "10%",
+                  render: (row) => (row.fallback_direct ? t("nodemgt.builtin_direct") : "—"),
+                },
+                { key: "enabled", label: t("nodemgt.col_enabled"), render: (row) => <EnableSwitch checked={row.enabled !== false} onChange={(next) => void toggleRowEnabled("chain", row, next)} /> },
+                {
+                  key: "actions",
+                  label: t("nodemgt.col_actions"),
+                  render: (row) => (
+                    <RowActions>
+                      <IconButton size="small" aria-label={t("nodemgt.edit")} onClick={() => openEdit("chain", row)}>
+                        <Pencil size={16} />
+                      </IconButton>
+                      <DeleteButton onClick={() => void removeRow("admin:nodemgt.chain.delete", row.id)} />
                     </RowActions>
                   ),
                 },
@@ -3783,7 +4166,7 @@ export default function PlusAdminPage() {
                 },
                 { key: "status", label: t("nodemgt.col_status"), width: "6%", render: (row) => <StatusChip value={row.status} /> },
                 { key: "delivery", label: t("nodemgt.col_delivery"), width: "6%", render: (row) => {
-                  const cmd = nodeDelivery(row.node_uuid);
+                  const cmd = userDeliveryCmd(row, inbounds, delivery);
                   return <DeliveryChip status={inboundDeliveryOf(row, cmd)} error={inboundTouched(row, cmd) ? cmd?.last_error : undefined} />;
                 } },
                 { key: "quota", label: t("nodemgt.col_quota_bytes"), width: "8%", render: (row) => formatQuotaLabel(row.used_bytes || 0, row.quota_bytes || 0, "—") },
@@ -4041,6 +4424,7 @@ export default function PlusAdminPage() {
             showSummary={false}
             showWhenEmpty
           />
+          </Box>
         </AdminListShell>
       )}
 
@@ -4967,6 +5351,80 @@ export default function PlusAdminPage() {
               onChange={(next) => setForm({ enabled: next ? "true" : "false" })}
             />
             ) : null}
+          </SheetPane>
+        ) : null}
+        {sheet?.kind === "chain" ? (
+          <SheetPane>
+            <Field label={t("nodemgt.col_name")} value={sheet.form.name} onChange={(value) => setForm({ name: value })} />
+            <MultiSelectField
+              label={t("nodemgt.chain_sources")}
+              value={csvIDs(sheet.form.source_inbound_ids)}
+              onChange={(value) => setForm({ source_inbound_ids: value.join(",") })}
+              options={chainSourceOptions}
+              helper={t("nodemgt.chain_sources_help")}
+              emptyLabel={t("nodemgt.chain_source_required")}
+              searchable
+              ordered
+            />
+            <SelectField
+              label={t("nodemgt.chain_strategy")}
+              value={chainStrategyOf(sheet.form.strategy)}
+              onChange={(value) => setForm(chainStrategyFields(sheet.form, value))}
+              options={[
+                { value: "none", label: t("nodemgt.chain_strategy_none") },
+                { value: "failover", label: t("nodemgt.chain_strategy_failover") },
+                { value: "urltest", label: t("nodemgt.chain_strategy_urltest") },
+              ]}
+              helper={t("nodemgt.chain_strategy_help")}
+            />
+            {chainStrategyOf(sheet.form.strategy) === "urltest" ? (
+            <MultiSelectField
+              label={t("nodemgt.chain_landings")}
+              value={csvIDs(sheet.form.landing_inbound_ids)}
+              onChange={(value) => setForm({ landing_inbound_ids: value.join(",") })}
+              options={chainLandingOptions}
+              helper={t("nodemgt.chain_landings_help")}
+              emptyLabel={t("nodemgt.chain_pool_required")}
+              searchable
+              ordered
+            />
+            ) : (
+            <SelectField
+              label={t(chainStrategyOf(sheet.form.strategy) === "failover" ? "nodemgt.chain_primary" : "nodemgt.chain_landings")}
+              value={csvIDs(sheet.form.landing_inbound_ids)[0] || ""}
+              onChange={(value) => setForm({
+                landing_inbound_ids: value,
+                backup_id: sheet.form.backup_id === value ? "" : sheet.form.backup_id,
+              })}
+              options={chainLandingOptions}
+              helper={t(chainStrategyOf(sheet.form.strategy) === "failover" ? "nodemgt.chain_primary_help" : "nodemgt.chain_landings_single_help")}
+              searchable
+            />
+            )}
+            {chainStrategyOf(sheet.form.strategy) === "failover" ? (
+            <SelectField
+              label={t("nodemgt.chain_backup")}
+              value={sheet.form.backup_id}
+              onChange={(value) => setForm({ backup_id: value, fallback_direct: value === "direct" ? "false" : sheet.form.fallback_direct })}
+              options={chainBackupOptions}
+              helper={t("nodemgt.chain_backup_help")}
+              searchable
+            />
+            ) : null}
+            {chainShowsFallback(sheet.form) ? (
+            <SheetSwitch
+              title={t(chainFallbackCopyKey(sheet.form, "title"))}
+              description={t(chainFallbackCopyKey(sheet.form, "help"))}
+              checked={sheet.form.fallback_direct === "true"}
+              onChange={(next) => setForm({ fallback_direct: next ? "true" : "false" })}
+            />
+            ) : null}
+            <SheetSwitch
+              title={t("nodemgt.col_enabled")}
+              description={t("nodemgt.enabled_help")}
+              checked={sheet.form.enabled !== "false"}
+              onChange={(next) => setForm({ enabled: next ? "true" : "false" })}
+            />
           </SheetPane>
         ) : null}
         {sheet?.kind === "node" ? (

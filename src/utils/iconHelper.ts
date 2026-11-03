@@ -6,6 +6,7 @@ import AlternateEmailOutlined from "@mui/icons-material/AlternateEmailOutlined";
 import AltRouteOutlined from "@mui/icons-material/AltRouteOutlined";
 import ArrowCircleRightOutlined from "@mui/icons-material/ArrowCircleRightOutlined";
 import BarChartOutlined from "@mui/icons-material/BarChartOutlined";
+import CallSplitOutlined from "@mui/icons-material/CallSplitOutlined";
 import ChatOutlined from "@mui/icons-material/ChatOutlined";
 import CodeOutlined from "@mui/icons-material/CodeOutlined";
 import DashboardOutlined from "@mui/icons-material/DashboardOutlined";
@@ -88,6 +89,7 @@ export const iconMap: Record<string, ReturnType<typeof wrapMuiIcon>> = {
   Gauge: wrapMuiIcon(SpeedOutlined),
   Store: wrapMuiIcon(StorefrontOutlined),
   Route: wrapMuiIcon(AltRouteOutlined),
+  CallSplit: wrapMuiIcon(CallSplitOutlined),
   LayoutDashboard: wrapMuiIcon(DashboardOutlined),
   Payments: wrapMuiIcon(AccountBalanceWalletOutlined),
   Send: wrapMuiIcon(SendOutlined),

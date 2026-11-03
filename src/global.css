@@ -2707,6 +2707,10 @@ html.dark [data-admin-shell] [data-admin-tab-motion-ready="true"]::after {
   }
 }
 
+[data-admin-shell] .km-admin-node-list > .admin-tab-panel {
+  animation: none;
+}
+
 [data-admin-shell] .admin-tab-panel[data-state="active"],
 [data-admin-shell] .km-admin-sheet-panel {
   animation: none;

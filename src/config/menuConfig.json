@@ -53,6 +53,11 @@
           "icon": "Hub"
         },
         {
+          "labelKey": "nodemgt.tab_chains",
+          "path": "/admin/nodemgt/forwarding",
+          "icon": "CallSplit"
+        },
+        {
           "labelKey": "nodemgt.tab_outbounds",
           "path": "/admin/nodemgt/outbounds",
           "icon": "Send"

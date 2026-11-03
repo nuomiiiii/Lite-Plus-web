@@ -51,6 +51,8 @@ test("disabled routes outbounds and users still follow the node apply-config chi
   assert.doesNotMatch(source, /function rowPushedToNode/);
   assert.doesNotMatch(source, /if \(!rowPushedToNode\(row\)\) return "not_started"/);
   assert.match(source, /function inboundDeliveryOf\(row\?: any, cmd\?: any\) \{\s*const status = deliveryStatusOf\(cmd\);/);
+  assert.match(source, /if \(!Number\.isFinite\(rowAt\)\) return false;/);
+  assert.match(source, /function userDeliveryCmd/);
 });
 
 test("new outbound copies uuid from the inbound's granted user", () => {
@@ -135,4 +137,35 @@ test("delete toasts as soon as the row is gone instead of waiting for the full r
     source,
     /const removeRow = async \(method: string, id: string, firewallGrant\?: string\) => \{[\s\S]*?toast\.success\(t\("nodemgt.saved"\)\);[\s\S]*?void load\(\{ force: true, reload: true \}\)/,
   );
+});
+
+test("forwarding chains use a nodemgt table and optional primary/backup form", () => {
+  assert.match(source, /"\/forwarding": "chains"/);
+  assert.match(source, /admin:nodemgt\.chain\.upsert/);
+  assert.match(source, /landing_inbound_ids/);
+  assert.match(source, /backup_direct/);
+  assert.match(source, /fallback_direct/);
+  assert.match(source, /chain_fallback_all/);
+  assert.match(source, /strategy === "failover" && form\.backup_id !== "direct"/);
+  assert.match(source, /chain_strategy_none/);
+  assert.match(source, /chain_strategy_failover/);
+  assert.match(source, /backup_id/);
+  assert.match(source, /id="chains"/);
+  assert.match(source, /visibleOutbounds = outbounds\.filter\(\(row\) => !chainManaged\(row\)/);
+  assert.match(source, /chainStrategyOf\(sheet\.form\.strategy\) === "failover" \? "nodemgt\.chain_primary" : "nodemgt\.chain_landings"/);
+  assert.match(source, /chain_landings_single_help/);
+  assert.doesNotMatch(source, /value: "", label: t\("nodemgt\.chain_landing_required"\)/);
+  assert.doesNotMatch(source, /value: "", label: t\("nodemgt\.chain_backup_required"\)/);
+  assert.doesNotMatch(source, /ids\[1\] \|\| "direct"/);
+  assert.match(source, /function chainStrategyFields/);
+  assert.match(source, /current === "urltest"/);
+  assert.match(source, /current === "failover"/);
+  assert.doesNotMatch(source, /backupLanding/);
+  assert.match(source, /nodemgt\.chain_fallback_col/);
+  assert.match(source, /nodemgt\.chain_in_use/);
+  assert.match(source, /nodemgt\.chain_route_in_use/);
+  assert.match(source, /nodemgt\.chain_outbound_in_use/);
+  assert.match(source, /function chainSourceInboundIDs/);
+  assert.match(source, /sourceIDs\.some\(\(id\) => busy\.routeIDs\.has\(id\)\)/);
+  assert.doesNotMatch(source, /\[\.\.\.sourceIDs, \.\.\.landingIDs\]\.some\(\(id\) => busy\.routeIDs\.has\(id\)\)/);
 });

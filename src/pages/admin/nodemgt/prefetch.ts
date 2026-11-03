@@ -15,6 +15,7 @@ export type NodemgtSnapshot = {
   subs: any[];
   outbounds: any[];
   routes: any[];
+  chains: any[];
   nodes: any[];
   audit: any[];
   diag: Record<string, any>;
@@ -39,6 +40,7 @@ const NODEMGT_REQUESTS: NodemgtRequest[] = [
   { key: "subs", method: "admin:nodemgt.subscription.list" },
   { key: "outbounds", method: "admin:nodemgt.outbound.list" },
   { key: "routes", method: "admin:nodemgt.route.list" },
+  { key: "chains", method: "admin:nodemgt.chain.list" },
   { key: "nodes", method: "admin:nodemgt.node.list" },
   { key: "audit", method: "admin:nodemgt.audit.list", params: { limit: 80 } },
   { key: "diag", method: "admin:nodemgt.diag.status" },
@@ -70,6 +72,7 @@ export function emptyNodemgtSnapshot(): NodemgtSnapshot {
     subs: [],
     outbounds: [],
     routes: [],
+    chains: [],
     nodes: [],
     audit: [],
     diag: {},
@@ -92,6 +95,35 @@ export function getNodemgtSnapshot(): NodemgtSnapshot | null {
   return snapshot;
 }
 
+const NODEMGT_PATH_TAB: Record<string, string> = {
+  "": "overview",
+  "/overview": "overview",
+  "/inbounds": "inbounds",
+  "/forwarding": "chains",
+  "/chains": "chains",
+  "/outbounds": "outbounds",
+  "/routes": "routes",
+  "/users": "users",
+  "/node-users": "users",
+  "/plans": "plans",
+  "/certificates": "certs",
+  "/certs": "certs",
+  "/subscriptions": "subscriptions",
+  "/templates": "templates",
+  "/audit": "audit",
+  "/diag": "overview",
+};
+
+export function nodemgtTabFromAdminPath(pathname: string): string {
+  const normalized = pathname.replace(/\/$/, "") || "/";
+  const prefix = ["/admin/nodemgt", "/admin/plus", "/admin/nodes"].find(
+    (item) => normalized === item || normalized.startsWith(`${item}/`),
+  );
+  if (!prefix) return "overview";
+  const suffix = normalized.slice(prefix.length) || "";
+  return NODEMGT_PATH_TAB[suffix] || "overview";
+}
+
 export function nodemgtPrimaryMethods(tab: string): string[] {
   switch (tab) {
     case "inbounds":
@@ -100,6 +132,8 @@ export function nodemgtPrimaryMethods(tab: string): string[] {
       return ["admin:nodemgt.outbound.list", "admin:nodemgt.control.status"];
     case "routes":
       return ["admin:nodemgt.route.list", "admin:nodemgt.control.status"];
+    case "chains":
+      return ["admin:nodemgt.chain.list", "admin:nodemgt.inbound.list", "admin:nodemgt.control.status"];
     case "users":
       return ["admin:nodemgt.user.list", "admin:nodemgt.control.status"];
     case "plans":

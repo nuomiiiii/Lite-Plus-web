@@ -44,6 +44,7 @@ const NODEMGT_ADMIN_SEGMENTS = [
   "overview",
   "inbounds",
   "forwarding",
+  "chains",
   "outbounds",
   "routes",
   "users",
@@ -108,7 +109,11 @@ export const preloadAdminRoute = async (target: string): Promise<void> => {
   const pathname = normalizeAdminPathname(target);
   if (isNodemgtAdminPath(pathname)) {
     void import("./pages/admin/nodemgt/prefetch")
-      .then((mod) => mod.prefetchNodemgtAdmin())
+      .then((mod) =>
+        mod.prefetchNodemgtAdmin({
+          primary: mod.nodemgtPrimaryMethods(mod.nodemgtTabFromAdminPath(pathname)),
+        }),
+      )
       .catch(() => undefined);
   }
   if (pathname === "/admin/billing") {
