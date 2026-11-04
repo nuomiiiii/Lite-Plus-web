@@ -18,7 +18,7 @@ test("联通线路选择使用 CUG 名称且不再暴露独立 10099", () => {
 test("编辑表单只在打开弹窗时读取任务数据", () => {
   assert.match(
     source,
-    /const handleOpenChange = \(nextOpen: boolean\) => \{\s*if \(nextOpen\) \{\s*setForm\(toTaskForm\(task\)\);\s*setSelectedClients\(task\?\.client \? \[task\.client\] : \[\]\);\s*\}\s*setOpen\(nextOpen\);\s*\};/,
+    /const handleOpenChange = \(nextOpen: boolean\) => \{\s*if \(nextOpen\) \{\s*setForm\(toTaskForm\(task\)\);\s*setSelectedClients\(task\?\.client \? \[task\.client\] : \[\]\);\s*setSelectedTemplateID\(""\);\s*\}\s*setOpen\(nextOpen\);\s*\};/,
   );
   assert.doesNotMatch(
     source,
@@ -56,6 +56,9 @@ test("刷新后仍停留在当前监测页签，告警深链未指定页签时�
   assert.match(source, /setTaskQuery\(\(current\) => \(current\.page === 1 \? current : \{ \.\.\.current, page: 1 \}\)\)/);
   assert.match(source, /useHeldTab\(activeTab, tabReady\)/);
   assert.match(source, /value=\{displayTab\}/);
+  assert.match(source, /const routePending = summaryLoading \|\| !tabReady;/);
+  assert.match(source, /data-admin-route-pending=\{routePending \? "true" : undefined\}/);
+  assert.doesNotMatch(source, /data-admin-route-pending=\{taskLoading \|\| summaryLoading/);
 });
 
 test("回程任务、记录和规则复用服务器列表的筛选条和表格卡片", () => {
@@ -149,4 +152,46 @@ test("监测记录支持可达性事件类型", () => {
   assert.match(source, /mainland_repeat: tr\("kind.mainland_repeat", "持续异常"\)/);
   assert.match(source, /mainland_recovery: tr\("kind.mainland_recovery", "可达性恢复"\)/);
   assert.match(source, /event.kind.startsWith\("mainland_"\)/);
+});
+
+test("回程模板可复用、应用到服务器，且不绑定疑似被墙判定", () => {
+  assert.match(source, /\["tasks",\s*"records",\s*"templates",\s*"rules"\]/);
+  assert.match(source, /<Tabs\.Trigger value="templates">/);
+  assert.match(source, /function RouteTemplateDialog/);
+  assert.match(source, /function ApplyTemplateDialog/);
+  assert.match(source, /request\("\/templates\/apply"/);
+  assert.match(source, /request\("\/templates\/add"/);
+  assert.match(source, /apply_to_new/);
+  assert.match(source, /templateSeedFromTask/);
+  assert.match(source, /form.from_template/);
+  assert.match(source, /template.save_as/);
+  const applyFn = source.slice(
+    source.indexOf("function applyTemplateFields"),
+    source.indexOf("const lineOptions"),
+  );
+  assert.match(source, /function returnRouteTaskNameForClient/);
+  assert.match(applyFn, /carrier: template.carrier/);
+  assert.match(applyFn, /returnRouteTaskNameForClient\(clientName, template.name, template.ip_version\)/);
+  assert.match(applyFn, /enabled: true/);
+  assert.doesNotMatch(applyFn, /mainland_reachability/);
+  assert.doesNotMatch(source, /已有相同运营商、地址类型和预期线路的模板/);
+  assert.match(source, /已有相同名称的模板/);
+  assert.doesNotMatch(source, /该运营商和地址类型已有开启/);
+  assert.match(source, /function RouteTemplateBatchDialog/);
+  assert.match(source, /request\("\/templates\/edit\/batch"/);
+  assert.match(source, /AdminListSearch[\s\S]*搜索模板、目标或线路[\s\S]*取消全选[\s\S]*批量修改[\s\S]*新建模板/);
+  assert.match(source, /该服务器已有相同的回程探测任务/);
+  assert.match(source, /任务名按「服务器名_任务名_地址类型」生成/);
+  assert.match(source, /已有相同探测目标、运营商、地址类型和预期线路的任务时会跳过/);
+  assert.match(source, /isReturnRouteTaskSlotTaken/);
+  const templateDialog = source.slice(
+    source.indexOf("function RouteTemplateDialog"),
+    source.indexOf("function ApplyTemplateDialog"),
+  );
+  const templateBatch = source.slice(
+    source.indexOf("function RouteTemplateBatchDialog"),
+    source.indexOf("function RouteTemplateDialog"),
+  );
+  assert.doesNotMatch(templateDialog, /form\.enable_task/);
+  assert.doesNotMatch(templateBatch, /form\.enable_task/);
 });
