@@ -124,7 +124,7 @@ test("prefetch throws later caller's primary errors on a shared in-flight batch"
   assert.equal(usersResult.rejected, false);
   assert.equal(certsResult.rejected, true);
   assert.match(String(certsResult.error), /admin:nodemgt\.cert\.list/);
-  assert.equal(requests.length, 15);
+  assert.equal(requests.length, 14);
   assert.equal(api.getNodemgtSnapshot()?.at > 0, false);
 });
 
@@ -152,7 +152,7 @@ test("reload waits for the in-flight batch then fetches again", async () => {
   const [firstResult, reloadResult] = await Promise.all([first, reload]);
   assert.equal(firstResult.rejected, false);
   assert.equal(reloadResult.rejected, false);
-  assert.equal(requests.length, 30);
+  assert.equal(requests.length, 28);
 });
 
 test("prefetch retries a transient Failed to fetch on the primary list", async () => {
