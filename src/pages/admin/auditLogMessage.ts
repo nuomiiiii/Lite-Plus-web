@@ -73,7 +73,23 @@ export type AuditTranslate = (
   options?: Record<string, unknown>,
 ) => string;
 
-export function formatAuditMessage(message: string, t: AuditTranslate): string {
+export type AuditMessageOptions = {
+  nodeName?: (uuid: string) => string;
+};
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function resolveNodeName(raw: string, options?: AuditMessageOptions): string {
+  const mapped = options?.nodeName?.(raw)?.trim();
+  return mapped || raw;
+}
+
+export function formatAuditMessage(
+  message: string,
+  t: AuditTranslate,
+  options?: AuditMessageOptions,
+): string {
   const trimmed = message.trim();
   if (!trimmed.startsWith("{")) return message;
   let parsed: { k?: unknown; p?: unknown };
@@ -107,7 +123,73 @@ export function formatAuditMessage(message: string, t: AuditTranslate): string {
   ) {
     params.name = "#" + params.id;
   }
+  if (parsed.k === "audit.nodemgt_node_upsert") {
+    const rawStack = DIAL_STACK.has(params.stack)
+      ? params.stack
+      : DIAL_STACK.has(params.name)
+        ? params.name
+        : "";
+    if (rawStack && !params.stack && DIAL_STACK.has(params.name)) {
+      params.name = params.target || params.name;
+    }
+    if (UUID_RE.test(params.name || "")) {
+      params.name = resolveNodeName(params.name, options);
+    }
+    if (rawStack) params.stack = t(`nodemgt.stack_${rawStack}`);
+  }
+  if (
+    parsed.k === "audit.nodemgt_inbound_reorder" &&
+    UUID_RE.test(params.name || "")
+  ) {
+    params.name = resolveNodeName(params.name, options);
+  }
+  if (parsed.k === "audit.nodemgt_user_set_status" && USER_STATUS.has(params.status)) {
+    params.status = t(`nodemgt.status_${params.status}`);
+  }
+  if (parsed.k === "audit.nodemgt_settings_set") {
+    const labels = nodemgtSettingLabels(params.settings || params.name || "", t);
+    if (!labels) {
+      return t(parsed.k, { name: "" })
+        .replace("「」", "")
+        .replace(/:\s*$/, "")
+        .trim();
+    }
+    params.name = labels;
+  }
   return t(parsed.k, params);
+}
+
+const DIAL_STACK = new Set(["dual", "ipv4", "ipv6", "prefer_ipv4", "prefer_ipv6"]);
+const USER_STATUS = new Set(["active", "disabled", "expired"]);
+const NODEMGT_SETTING_KEY: Record<string, string> = {
+  clear_issuer: "nodemgt.cert_sheet_issuer",
+  cf_api_token: "nodemgt.cf_token",
+  acme_email: "nodemgt.acme_email",
+  sub_listen_port: "nodemgt.sub_listen_port",
+  sub_public_port: "nodemgt.sub_public_port",
+  sub_path: "nodemgt.sub_path",
+  sub_public_host: "nodemgt.sub_public_host",
+  sub_reuse_https: "nodemgt.sub_reuse_https",
+  sub_publish_name: "nodemgt.sub_publish_name",
+  sub_publish_userinfo: "nodemgt.sub_publish_userinfo",
+};
+
+function nodemgtSettingLabels(raw: string, t: AuditTranslate): string {
+  const keys = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((key) => key !== "nodemgt");
+  if (keys.length === 0) return "";
+  const first = t(NODEMGT_SETTING_KEY[keys[0]] ?? `nodemgt.${keys[0]}`);
+  const sep = /[^\u0000-\u00ff]/.test(first) ? "、" : ", ";
+  return keys
+    .map((key) => {
+      const loc = NODEMGT_SETTING_KEY[key] ?? `nodemgt.${key}`;
+      const label = t(loc);
+      return label === loc ? key : label;
+    })
+    .join(sep);
 }
 
 function displayValue(setting: string, raw: string, t: AuditTranslate): string {

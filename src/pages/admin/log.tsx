@@ -27,6 +27,7 @@ import {
   AdminListShell,
 } from "@/components/admin/AdminListShell";
 import { formatAuditMessage } from "@/pages/admin/auditLogMessage";
+import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 
 interface Log {
   id: number;
@@ -80,6 +81,7 @@ function logTypeColor(value: string) {
   if (value === "warn") return "yellow";
   if (value === "info") return "green";
   if (value === "terminal") return "blue";
+  if (value === "nodemgt") return "blue";
   return "gray";
 }
 
@@ -92,9 +94,34 @@ function LogTypeBadge({ value }: { value: string }) {
   );
 }
 
-function LogMessageCell({ message }: { message: string }) {
+function useFormatAuditMessage() {
   const { t } = useTranslation();
-  const text = formatAuditMessage(message, t);
+  const { nodeDetail } = useNodeDetails();
+  const names = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of nodeDetail) {
+      const name = String(node.name || "").trim();
+      if (node.uuid && name) map.set(node.uuid, name);
+    }
+    return map;
+  }, [nodeDetail]);
+  return React.useCallback(
+    (message: string) =>
+      formatAuditMessage(message, t, {
+        nodeName: (uuid) => names.get(uuid) || uuid,
+      }),
+    [names, t],
+  );
+}
+
+function LogMessageCell({
+  message,
+  formatMessage,
+}: {
+  message: string;
+  formatMessage: (message: string) => string;
+}) {
+  const text = formatMessage(message);
   return (
     <Tooltip
       title={text}
@@ -120,6 +147,7 @@ function LogMessageCell({ message }: { message: string }) {
 }
 
 const LogPage = () => {
+  const formatMessage = useFormatAuditMessage();
   const defaultPageSize = useAdminDefaultPageSize();
   const [loading, setLoading] = React.useState<boolean>(true);
   const [logs, setLogs] = React.useState<Log[]>([]);
@@ -353,7 +381,7 @@ const LogPage = () => {
                                   <LogTypeBadge value={log.msg_type} />
                                   <label className="font-bold">{t("logs.message", "内容")}</label>
                                   <label className="text-sm whitespace-pre-wrap break-all">
-                                    {formatAuditMessage(log.message, t)}
+                                    {formatMessage(log.message)}
                                   </label>
                                   <label className="font-bold">{t("logs.time", "时间")}</label>
                                   <label className="text-sm">{timeLabel}</label>
@@ -373,7 +401,7 @@ const LogPage = () => {
                             <LogTypeBadge value={log.msg_type} />
                           </TableCell>
                           <TableCell className="km-log-col-message">
-                            <LogMessageCell message={log.message} />
+                            <LogMessageCell message={log.message} formatMessage={formatMessage} />
                           </TableCell>
                           <TableCell className="km-log-col-time whitespace-nowrap">
                             {timeLabel}

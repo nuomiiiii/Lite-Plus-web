@@ -17,7 +17,6 @@ export type NodemgtSnapshot = {
   routes: any[];
   chains: any[];
   nodes: any[];
-  audit: any[];
   diag: Record<string, any>;
   settings: Record<string, any>;
   delivery: any[];
@@ -42,7 +41,6 @@ const NODEMGT_REQUESTS: NodemgtRequest[] = [
   { key: "routes", method: "admin:nodemgt.route.list" },
   { key: "chains", method: "admin:nodemgt.chain.list" },
   { key: "nodes", method: "admin:nodemgt.node.list" },
-  { key: "audit", method: "admin:nodemgt.audit.list", params: { limit: 80 } },
   { key: "diag", method: "admin:nodemgt.diag.status" },
   { key: "settings", method: "admin:nodemgt.settings.get" },
   { key: "delivery", method: "admin:nodemgt.control.status" },
@@ -74,7 +72,6 @@ export function emptyNodemgtSnapshot(): NodemgtSnapshot {
     routes: [],
     chains: [],
     nodes: [],
-    audit: [],
     diag: {},
     settings: {},
     delivery: [],
@@ -110,7 +107,6 @@ const NODEMGT_PATH_TAB: Record<string, string> = {
   "/certs": "certs",
   "/subscriptions": "subscriptions",
   "/templates": "templates",
-  "/audit": "audit",
   "/diag": "overview",
 };
 
@@ -148,8 +144,6 @@ export function nodemgtPrimaryMethods(tab: string): string[] {
         "admin:nodemgt.plan.list",
         "admin:nodemgt.template.list",
       ];
-    case "audit":
-      return ["admin:nodemgt.audit.list"];
     default:
       return [
         "admin:nodemgt.inbound.list",

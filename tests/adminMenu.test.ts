@@ -119,7 +119,6 @@ test("keeps the admin navigation in the intended groups", () => {
       "/admin/nodemgt/plans",
       "/admin/nodemgt/subscriptions",
       "/admin/nodemgt/certificates",
-      "/admin/nodemgt/audit",
     ],
   );
 
@@ -221,7 +220,6 @@ test("keeps the nodemgt group open across nested nodemgt routes", () => {
     "/admin/nodemgt/plans",
     "/admin/nodemgt/subscriptions",
     "/admin/nodemgt/certificates",
-    "/admin/nodemgt/audit",
   ]) {
     const next = syncSubMenuForLocation(openSubMenus, menuConfig.menu, pathname);
     assert.deepEqual(next, { "/admin/nodemgt": true });

@@ -237,6 +237,14 @@ export const routes: RouteObject[] = [
                 to: "/admin/nodemgt/overview",
               }),
             }
+          : segment === "audit"
+            ? {
+                path: "nodemgt/audit",
+                element: React.createElement(Navigate, {
+                  replace: true,
+                  to: "/admin/logs",
+                }),
+              }
           : {
               path: segment ? `nodemgt/${segment}` : "nodemgt",
               element: React.createElement(lazy(loadNodemgtAdminPage)),
@@ -247,7 +255,7 @@ export const routes: RouteObject[] = [
           path: segment ? `${prefix}/${segment}` : prefix,
           element: React.createElement(Navigate, {
             replace: true,
-            to: nodemgtAdminPath(segment),
+            to: segment === "audit" ? "/admin/logs" : nodemgtAdminPath(segment),
           }),
         })),
       ),

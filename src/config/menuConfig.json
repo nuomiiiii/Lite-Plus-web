@@ -86,11 +86,6 @@
           "labelKey": "nodemgt.tab_certs",
           "path": "/admin/nodemgt/certificates",
           "icon": "Globe"
-        },
-        {
-          "labelKey": "nodemgt.tab_audit",
-          "path": "/admin/nodemgt/audit",
-          "icon": "FileText"
         }
       ]
     },

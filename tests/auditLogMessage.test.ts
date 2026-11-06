@@ -104,6 +104,180 @@ test("theme update logs show counts in every language", () => {
   }
 });
 
+test("node management logs use the current language", () => {
+  const message = JSON.stringify({
+    k: "audit.nodemgt_chain_upsert",
+    p: { name: "GreenCloud_SG_互联网落地" },
+  });
+  const expected = {
+    "zh_CN.json": "保存了转发「GreenCloud_SG_互联网落地」",
+    "en.json": "Saved forwarding chain GreenCloud_SG_互联网落地",
+    "ja_JP.json": "転送「GreenCloud_SG_互联网落地」を保存しました",
+    "zh_TW.json": "已儲存轉發「GreenCloud_SG_互联网落地」",
+  };
+  for (const [filename, sentence] of Object.entries(expected)) {
+    assert.equal(
+      formatAuditMessage(message, translate(locale(filename))),
+      sentence,
+      filename,
+    );
+  }
+  assert.equal(lookup(locale("zh_CN.json"), "logs.types.nodemgt"), "节点管理");
+  assert.equal(lookup(locale("en.json"), "logs.types.nodemgt"), "Node management");
+  assert.equal(lookup(locale("ja_JP.json"), "logs.types.nodemgt"), "ノード管理");
+  assert.equal(lookup(locale("zh_TW.json"), "logs.types.nodemgt"), "節點管理");
+});
+
+test("node outbound stack logs use the on-screen labels", () => {
+  const stacks = {
+    dual: {
+      "zh_CN.json": "将节点「sg-1」的出站地址族设为「双栈」",
+      "en.json": "Set the outbound IP stack of sg-1 to Dual stack",
+      "ja_JP.json": "ノード「sg-1」の出方向アドレス族を「デュアルスタック」に設定しました",
+      "zh_TW.json": "已將節點「sg-1」的出站位址族設為「雙棧」",
+    },
+    ipv4: {
+      "zh_CN.json": "将节点「sg-1」的出站地址族设为「仅 IPv4」",
+      "en.json": "Set the outbound IP stack of sg-1 to IPv4 only",
+      "ja_JP.json": "ノード「sg-1」の出方向アドレス族を「IPv4 のみ」に設定しました",
+      "zh_TW.json": "已將節點「sg-1」的出站位址族設為「僅 IPv4」",
+    },
+    ipv6: {
+      "zh_CN.json": "将节点「sg-1」的出站地址族设为「仅 IPv6」",
+      "en.json": "Set the outbound IP stack of sg-1 to IPv6 only",
+      "ja_JP.json": "ノード「sg-1」の出方向アドレス族を「IPv6 のみ」に設定しました",
+      "zh_TW.json": "已將節點「sg-1」的出站位址族設為「僅 IPv6」",
+    },
+    prefer_ipv4: {
+      "zh_CN.json": "将节点「sg-1」的出站地址族设为「IPv4 优先」",
+      "en.json": "Set the outbound IP stack of sg-1 to Prefer IPv4",
+      "ja_JP.json": "ノード「sg-1」の出方向アドレス族を「IPv4 優先」に設定しました",
+      "zh_TW.json": "已將節點「sg-1」的出站位址族設為「IPv4 優先」",
+    },
+    prefer_ipv6: {
+      "zh_CN.json": "将节点「sg-1」的出站地址族设为「IPv6 优先」",
+      "en.json": "Set the outbound IP stack of sg-1 to Prefer IPv6",
+      "ja_JP.json": "ノード「sg-1」の出方向アドレス族を「IPv6 優先」に設定しました",
+      "zh_TW.json": "已將節點「sg-1」的出站位址族設為「IPv6 優先」",
+    },
+  };
+  for (const [stack, expected] of Object.entries(stacks)) {
+    const message = JSON.stringify({
+      k: "audit.nodemgt_node_upsert",
+      p: { name: "sg-1", stack },
+    });
+    for (const [filename, sentence] of Object.entries(expected)) {
+      assert.equal(
+        formatAuditMessage(message, translate(locale(filename))),
+        sentence,
+        `${stack} ${filename}`,
+      );
+    }
+  }
+});
+
+test("node management delete and status logs use the current language", () => {
+  assert.equal(
+    formatAuditMessage(
+      JSON.stringify({
+        k: "audit.nodemgt_node_upsert",
+        p: {
+          name: "dual",
+          target: "649d9340-f920-4329-ad36-0fff0d10610c",
+        },
+      }),
+      translate(locale("zh_CN.json")),
+    ),
+    "将节点「649d9340-f920-4329-ad36-0fff0d10610c」的出站地址族设为「双栈」",
+  );
+  assert.equal(
+    formatAuditMessage(
+      JSON.stringify({
+        k: "audit.nodemgt_node_upsert",
+        p: {
+          name: "dual",
+          target: "649d9340-f920-4329-ad36-0fff0d10610c",
+        },
+      }),
+      translate(locale("zh_CN.json")),
+      {
+        nodeName: (uuid) =>
+          uuid === "649d9340-f920-4329-ad36-0fff0d10610c" ? "sg-1" : uuid,
+      },
+    ),
+    "将节点「sg-1」的出站地址族设为「双栈」",
+  );
+  assert.equal(
+    formatAuditMessage(
+      JSON.stringify({
+        k: "audit.nodemgt_settings_set",
+        p: { settings: "sub_path,sub_listen_port" },
+      }),
+      translate(locale("zh_CN.json")),
+    ),
+    "保存了节点管理设置「URL 路径、监听端口」",
+  );
+  assert.equal(
+    formatAuditMessage(
+      JSON.stringify({ k: "audit.nodemgt_settings_set", p: {} }),
+      translate(locale("zh_CN.json")),
+    ),
+    "保存了节点管理设置",
+  );
+  assert.equal(
+    formatAuditMessage(
+      JSON.stringify({
+        k: "audit.nodemgt_subscription_upsert",
+        p: { name: "alice" },
+      }),
+      translate(locale("zh_CN.json")),
+    ),
+    "保存了用户「alice」的订阅",
+  );
+  const plan = JSON.stringify({
+    k: "audit.nodemgt_plan_delete",
+    p: { name: "标准套餐" },
+  });
+  assert.equal(
+    formatAuditMessage(plan, translate(locale("zh_CN.json"))),
+    "删除了套餐「标准套餐」",
+  );
+  const sub = JSON.stringify({
+    k: "audit.nodemgt_subscription_delete",
+    p: { name: "alice" },
+  });
+  const subExpected = {
+    "zh_CN.json": "删除了用户「alice」的订阅",
+    "en.json": "Deleted the subscription for alice",
+    "ja_JP.json": "ユーザー「alice」のサブスクリプションを削除しました",
+    "zh_TW.json": "已移除使用者「alice」的訂閱",
+  };
+  for (const [filename, sentence] of Object.entries(subExpected)) {
+    assert.equal(
+      formatAuditMessage(sub, translate(locale(filename))),
+      sentence,
+      filename,
+    );
+  }
+  const status = JSON.stringify({
+    k: "audit.nodemgt_user_set_status",
+    p: { name: "alice", status: "expired" },
+  });
+  const statusExpected = {
+    "zh_CN.json": "将用户「alice」设为「到期」",
+    "en.json": "Set user alice to Expired",
+    "ja_JP.json": "ユーザー「alice」を「期限切れ」に設定しました",
+    "zh_TW.json": "已將使用者「alice」設為「到期」",
+  };
+  for (const [filename, sentence] of Object.entries(statusExpected)) {
+    assert.equal(
+      formatAuditMessage(status, translate(locale(filename))),
+      sentence,
+      filename,
+    );
+  }
+});
+
 test("command clipboard logs show the command name", () => {
   const message = JSON.stringify({
     k: "audit.clipboard_delete",

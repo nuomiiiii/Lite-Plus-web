@@ -118,8 +118,7 @@ type TabKey =
   | "users"
   | "plans"
   | "certs"
-  | "subscriptions"
-  | "audit";
+  | "subscriptions";
 
 type SheetKind = "inbound" | "user" | "plan" | "cert" | "subscription" | "outbound" | "route" | "chain" | "node";
 type FormMap = Record<string, string>;
@@ -142,7 +141,6 @@ const NODE_TABS: Record<string, TabKey> = {
   "/certs": "certs",
   "/subscriptions": "subscriptions",
   "/templates": "subscriptions",
-  "/audit": "audit",
   "/diag": "overview",
 };
 
@@ -2207,10 +2205,6 @@ function StatusChip({ value }: { value: string }) {
   return <Badge color={color}>{t(`nodemgt.status_${value}`, { defaultValue: value || "—" })}</Badge>;
 }
 
-function auditActionKey(action: string) {
-  return String(action || "").replace(/^nodemgt\./, "").replace(/\./g, "_");
-}
-
 function deliveryStatusOf(row?: any) {
   const raw = String(row?.status || "").toLowerCase();
   if (raw === "pending") return "saved";
@@ -2458,7 +2452,6 @@ export default function PlusAdminPage() {
   const [routes, setRoutes] = useState<any[]>(() => cached?.routes ?? []);
   const [chains, setChains] = useState<any[]>(() => cached?.chains ?? []);
   const [nodeProfiles, setNodeProfiles] = useState<any[]>(() => cached?.nodes ?? []);
-  const [audit, setAudit] = useState<any[]>(() => cached?.audit ?? []);
   const [diag, setDiag] = useState<any>(() => cached?.diag ?? {});
   const [delivery, setDelivery] = useState<any[]>(() => cached?.delivery ?? []);
   const [settings, setSettings] = useState<any>(() => cached?.settings ?? {});
@@ -2621,7 +2614,6 @@ export default function PlusAdminPage() {
     setRoutes(snap.routes);
     setChains(snap.chains || []);
     setNodeProfiles((snap.nodes || []).map((row) => ({ ...row, id: str(row?.node_uuid || row?.id) })));
-    setAudit(snap.audit);
     setDiag(snap.diag);
     setDelivery(snap.delivery);
     setSettings(snap.settings);
@@ -2798,7 +2790,6 @@ export default function PlusAdminPage() {
     .filter((row) => chainOnNode(row, nodeFilter) && matchSearch({ name: row.name, landing_names: (row.landing_names || []).join(" "), source_names: (row.source_names || []).join(" ") }, ["name", "landing_names", "source_names"]))
     .slice()
     .sort(byCreatedAt);
-  const visibleAudit = audit.filter((row) => matchSearch(row, ["actor", "action", "target"]));
   const diagRows = Array.isArray(diag.commands) && diag.commands.length ? diag.commands : delivery;
   const diagPending = diagRows.filter((row: any) => {
     const status = deliveryStatusOf(row);
@@ -2841,8 +2832,6 @@ export default function PlusAdminPage() {
                 ? visibleCerts
                 : tab === "subscriptions"
                   ? visibleSubs
-                  : tab === "audit"
-                    ? visibleAudit
                     : overviewRows;
   const listPager = useAdminPagination(listRows);
 
@@ -4433,31 +4422,6 @@ export default function PlusAdminPage() {
                       </IconButton>
                     </RowActions>
                   ),
-                },
-              ]}
-            />
-          ) : tab === "audit" ? (
-            <RecordTable
-              id="audit"
-              empty={t("nodemgt.empty")}
-              loading={loading}
-              rows={listPager.pageItems}
-              columns={[
-                { key: "created_at", label: t("nodemgt.col_created_at"), render: (row) => formatWhen(row.created_at) },
-                { key: "actor", label: t("nodemgt.col_actor"), render: (row) => row.actor || "—" },
-                {
-                  key: "action",
-                  label: t("nodemgt.col_action"),
-                  render: (row) => t(`nodemgt.audit_action.${auditActionKey(row.action)}`, { defaultValue: row.action }),
-                },
-                {
-                  key: "target",
-                  label: t("nodemgt.col_target"),
-                  render: (row) => {
-                    const value = str(row.target);
-                    if (!value || value === "nodemgt") return t("nodemgt.title");
-                    return nodeName(value) !== value ? nodeName(value) : value;
-                  },
                 },
               ]}
             />
