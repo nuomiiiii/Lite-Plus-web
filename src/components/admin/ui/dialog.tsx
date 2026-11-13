@@ -45,6 +45,7 @@ type DialogRootProps = {
   onOpenChange?: (open: boolean) => void;
   zIndex?: number;
   disableEnforceFocus?: boolean;
+  mobileSheet?: boolean;
   children?: ReactNode;
 };
 
@@ -189,6 +190,7 @@ function DialogRoot({
   onOpenChange,
   zIndex,
   disableEnforceFocus,
+  mobileSheet = false,
   children,
 }: DialogRootProps) {
   const [uncontrolled, setUncontrolled] = useState(Boolean(defaultOpen));
@@ -228,16 +230,28 @@ function DialogRoot({
         aria-describedby={undefined}
         sx={{
           ...(zIndex ? { zIndex } : {}),
-          "& .MuiDialog-container": dialogContainerNoFadeSx,
+          "& .MuiDialog-container": {
+            ...dialogContainerNoFadeSx,
+            ...(mobileSheet ? { alignItems: { xs: "flex-end", sm: "center" } } : {}),
+          },
         }}
         slotProps={{
           paper: {
+            className: mobileSheet ? "km-admin-sheet-panel" : undefined,
             sx: {
               visibility: dialogPaperVisibility(isOpen),
               width: "calc(100% - 32px)",
               maxWidth: paperMaxWidth ?? 480,
               m: 2,
               borderRadius: "8px",
+              ...(mobileSheet ? {
+                width: { xs: "100%", sm: "calc(100% - 32px)" },
+                maxWidth: { xs: "100%", sm: paperMaxWidth ?? 480 },
+                m: { xs: 0, sm: 2 },
+                borderRadius: { xs: "12px 12px 0 0", sm: "8px" },
+                maxHeight: { xs: "calc(100dvh - 24px)", sm: "calc(100% - 64px)" },
+                pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
+              } : {}),
             },
           },
         }}

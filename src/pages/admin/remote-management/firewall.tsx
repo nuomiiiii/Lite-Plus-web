@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import ChevronLeft from "@mui/icons-material/ChevronLeft";
@@ -22,6 +22,7 @@ import { AdminPagination, useAdminPagination } from "@/components/admin/AdminPag
 import {
   AdminListFiltersBar,
   AdminListSearch,
+  AdminListSelect,
   AdminListShell,
 } from "@/components/admin/AdminListShell";
 import AdminNodeListFilters, {
@@ -34,6 +35,7 @@ import { ADMIN_LIST_ACTION_SX, ADMIN_LIST_OUTLINE_SX } from "@/components/admin/
 import { RequireAllowRemoteManagement } from "@/components/admin/RemoteManagementGate";
 import { AdminMobileCardStack, AdminMobileListCard } from "@/components/admin/AdminMobileListCard";
 import Loading from "@/components/loading";
+import SettingsPageSkeleton from "@/components/admin/SettingsPageSkeleton";
 import { AdminNodeLiveDataProvider, nodeOnlineState, useAdminNodeLiveData } from "@/hooks/use-admin-node-live-data";
 import { useNodeDetails, type NodeDetail } from "@/contexts/NodeDetailsContext";
 import {
@@ -57,7 +59,7 @@ import {
   Flex,
   Switch,
 } from "@/components/admin/ui";
-import { Download, Pencil, Plus, RefreshCw, Trash, Upload } from "@/components/admin/muiIcons";
+import { Download, Pencil, Plus, RefreshCw, Shield, Trash, Upload } from "@/components/admin/muiIcons";
 import {
   Table,
   TableBody,
@@ -77,7 +79,18 @@ import {
 } from "@/utils/remoteSession";
 import { createRandomId } from "@/utils/randomId";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAdminTabParam } from "@/hooks/useAdminTabParam";
 import { NODE_OFFLINE, NODE_ONLINE } from "@/theme/brand";
+import { servicePorts, type ServicePort } from "./firewall/protection/model";
+import { prefetchProtectionView } from "./firewall/protection/prefetch";
+
+const loadServiceProtection = () => import("./firewall/protection");
+const ServiceProtectionSection = lazy(loadServiceProtection);
+
+function warmServiceProtection(uuid?: string) {
+  void loadServiceProtection().catch(() => {});
+  if (uuid) void prefetchProtectionView(uuid).catch(() => {});
+}
 
 type FirewallProtocol = "tcp" | "udp" | "both";
 
@@ -162,6 +175,7 @@ type RuleForm = {
 };
 
 const GRANT_SCOPE = "firewall";
+const FIREWALL_TABS = ["rules", "protection"] as const;
 const EMPTY_FORM: RuleForm = {
   action: "allow",
   protocol: "tcp",
@@ -314,7 +328,13 @@ function FirewallContent() {
   const [authOtp, setAuthOtp] = useState("");
   const [pendingSave, setPendingSave] = useState<FirewallView["intent"] | null>(null);
   const [pendingInstall, setPendingInstall] = useState(false);
+  const [pendingProtection, setPendingProtection] = useState(false);
+  const protectionRunRef = useRef<null | ((grant: string) => Promise<void>)>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [tab, setTab] = useAdminTabParam(FIREWALL_TABS, "rules");
+  const [protectionTarget, setProtectionTarget] = useState<{ uuid: string; service: ServicePort } | null>(null);
+  const clearProtectionTarget = useCallback(() => setProtectionTarget(null), []);
+  useEffect(() => { if (uuid) warmServiceProtection(uuid); }, [uuid]);
   const [denyConfirm, setDenyConfirm] = useState(false);
   const [sshPortConfirm, setSshPortConfirm] = useState<string | null>(null);
   const [sshPortFieldKey, setSshPortFieldKey] = useState(0);
@@ -573,11 +593,37 @@ function FirewallContent() {
     }
     setPendingSave(null);
     setPendingInstall(true);
+    setPendingProtection(false);
+    setAuthOpen(true);
+  };
+
+  const queueProtection = async (run: (grant: string) => Promise<void>) => {
+    if (!uuid) return;
+    if (isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) {
+      const grant = grantRef.current;
+      grantRef.current = "";
+      setHasGrant(false);
+      try {
+        await run(grant);
+      } catch (err) {
+        toast.error(firewallErrorMessage(err, t));
+      }
+      return;
+    }
+    protectionRunRef.current = run;
+    setPendingSave(null);
+    setPendingInstall(false);
+    setPendingProtection(true);
     setAuthOpen(true);
   };
 
   const readOnly = Boolean(view?.unavailable);
-  const rules = view?.intent.rules || [];
+  const rules = useMemo(() => view?.intent.rules || [], [view?.intent.rules]);
+  const protectionPorts = useMemo(() => servicePorts(rules), [rules]);
+  const protectRule = (rule: FirewallRule) => {
+    setProtectionTarget({ uuid, service: { name: rule.comment || `${rule.protocol.toUpperCase()} ${rule.port}`, port: rule.port, protocol: rule.protocol } });
+    setTab("protection");
+  };
   const hostRules = view?.snapshot?.host_rules;
   const adoptableHostKeys = useMemo(
     () => (hostRules || []).filter((rule) => rule.adoptable).map((rule) => rule.key),
@@ -774,6 +820,7 @@ function FirewallContent() {
   const online = uuid ? nodeOnlineState(available, onlineSet, uuid) : null;
   const openNode = (node: NodeDetail) => {
     void prefetchFirewallView(node.uuid);
+    void prefetchProtectionView(node.uuid);
     setParams({ uuid: node.uuid });
   };
   const backToList = () => {
@@ -903,7 +950,7 @@ function FirewallContent() {
               </Typography>
             ) : null}
           </Box>
-          {view?.delivery_status ? (
+          {view?.delivery_status && tab !== "protection" ? (
             <Chip
               size="small"
               label={t(`firewall.delivery_${view.delivery_status}`, { defaultValue: view.delivery_status })}
@@ -1011,15 +1058,35 @@ function FirewallContent() {
               <Callout.Text>{t("firewall.default_deny_blocked")}</Callout.Text>
             </Callout.Root>
           ) : null}
-          <SettingCardLabel>{t("firewall.rules")}</SettingCardLabel>
-          {stacksOn.v4 && stacksOn.v6 ? (
-            <AdminSheetTabs>
-              <Tabs value={stackView} onChange={(_, next: "v4" | "v6") => next && setStack(next)}>
-                <Tab value="v4" label={<AdminTabLabel>{t("firewall.tab_v4")}</AdminTabLabel>} />
-                <Tab value="v6" label={<AdminTabLabel>{t("firewall.tab_v6")}</AdminTabLabel>} />
-              </Tabs>
-            </AdminSheetTabs>
+          <AdminSheetTabs>
+            <Tabs value={tab} onChange={(_, next: "rules" | "protection") => next && setTab(next)}>
+              <Tab value="rules" label={<AdminTabLabel>{t("firewall.rules")}</AdminTabLabel>} />
+              <Tab value="protection" onMouseEnter={() => warmServiceProtection(uuid)} onFocus={() => warmServiceProtection(uuid)} label={<AdminTabLabel>{t("firewall.protection.tab")}</AdminTabLabel>} />
+            </Tabs>
+          </AdminSheetTabs>
+          {uuid ? (
+            <Box hidden={tab !== "protection"} aria-hidden={tab !== "protection"} sx={{ minWidth: 0 }}>
+            <Suspense fallback={tab === "protection" ? <SettingsPageSkeleton inline /> : null}>
+            <ServiceProtectionSection
+              key={uuid}
+              uuid={uuid}
+              active={tab === "protection"}
+              readOnly={readOnly}
+              busy={busy}
+              setBusy={setBusy}
+              pageID={pageIDRef.current}
+              rememberGrant={rememberGrant}
+              queueAuth={queueProtection}
+              ports={protectionPorts}
+              sshPort={sshPort}
+              target={protectionTarget?.uuid === uuid ? protectionTarget.service : null}
+              onTargetHandled={clearProtectionTarget}
+            />
+            </Suspense>
+            </Box>
           ) : null}
+          {tab === "rules" ? (
+        <>
           {!hasStack ? (
             <Callout.Root color="orange" role="status">
               <Callout.Text>{t("firewall.no_reported_address")}</Callout.Text>
@@ -1034,6 +1101,12 @@ function FirewallContent() {
                 sx={{ width: "100%", flexWrap: { xs: "wrap", md: "nowrap" }, alignItems: "center" }}
               >
                 <AdminListSearch value={query} onChange={setQuery} placeholder={t("firewall.search")} />
+                {stacksOn.v4 && stacksOn.v6 ? (
+                  <AdminListSelect label="IP" value={stackView} onChange={(next) => setStack(next as "v4" | "v6")}>
+                    <MenuItem value="v4">{t("firewall.tab_v4")}</MenuItem>
+                    <MenuItem value="v6">{t("firewall.tab_v6")}</MenuItem>
+                  </AdminListSelect>
+                ) : null}
                 <Stack direction="row" spacing={1} useFlexGap sx={{ ml: { md: "auto" }, flexWrap: "wrap" }}>
                   <MuiButton variant="contained" startIcon={<Plus size={16} />} sx={ADMIN_LIST_ACTION_SX} disabled={stackLocked} onClick={() => setEditing("new")}>
                     {t("firewall.create")}
@@ -1073,6 +1146,9 @@ function FirewallContent() {
                       ]}
                       actions={
                         <Flex gap="2">
+                          <IconButton size="small" disabled={busy || !rule.enabled || rule.action !== "allow" || !/^\d+$/.test(rule.port)} aria-label={t("firewall.protection.configure_port", { port: rule.port })} onClick={() => protectRule(rule)}>
+                            <Shield size={16} />
+                          </IconButton>
                           {kept ? null : (
                             <IconButton size="small" disabled={stackLocked} aria-label={t("common.edit")} onClick={() => setEditing(rule)}>
                               <Pencil size={16} />
@@ -1133,6 +1209,9 @@ function FirewallContent() {
                       <TableCell>{rule.comment || "—"}</TableCell>
                       <TableCell>{rule.priority}</TableCell>
                       <TableCell className="text-center">
+                        <IconButton size="small" disabled={busy || !rule.enabled || rule.action !== "allow" || !/^\d+$/.test(rule.port)} aria-label={t("firewall.protection.configure_port", { port: rule.port })} onClick={() => protectRule(rule)}>
+                          <Shield size={16} />
+                        </IconButton>
                         {kept ? null : (
                           <IconButton size="small" disabled={stackLocked} aria-label={t("common.edit")} onClick={() => setEditing(rule)}>
                             <Pencil size={16} />
@@ -1160,6 +1239,8 @@ function FirewallContent() {
           </AdminListShell>
           )}
         </>
+          ) : null}
+        </>
       )}
       <RuleDialog
         open={editing !== null}
@@ -1171,7 +1252,7 @@ function FirewallContent() {
         onClose={() => setEditing(null)}
         onSave={(form, password, otp, usePasskey) => upsertRule(form, editing && editing !== "new" ? editing : undefined, password, otp, usePasskey)}
       />
-      <Dialog.Root open={deleting !== null} onOpenChange={(next: boolean) => { if (!next) setDeleting(null); }}>
+      <Dialog.Root mobileSheet open={deleting !== null} onOpenChange={(next: boolean) => { if (!next) setDeleting(null); }}>
         <AppDialogContent title={t("firewall.delete_title")} description={t("firewall.delete_body")}>
           <Flex justify="end" gap="2" className="mt-4">
             <MuiButton onClick={() => setDeleting(null)}>{t("common.cancel")}</MuiButton>
@@ -1179,7 +1260,7 @@ function FirewallContent() {
           </Flex>
         </AppDialogContent>
       </Dialog.Root>
-      <Dialog.Root open={importHost} onOpenChange={(next: boolean) => { if (!next) setImportHost(false); }}>
+      <Dialog.Root mobileSheet open={importHost} onOpenChange={(next: boolean) => { if (!next) setImportHost(false); }}>
         <AppDialogContent title={t("firewall.sync_host")} description={t("firewall.sync_host_help")} maxWidth="720px">
           {adoptableHostKeys.length > 0 ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 2, pl: 1.5, border: "1px solid transparent" }}>
@@ -1277,7 +1358,7 @@ function FirewallContent() {
           </Flex>
         </AppDialogContent>
       </Dialog.Root>
-      <Dialog.Root open={sshPortConfirm !== null} onOpenChange={(next: boolean) => {
+      <Dialog.Root mobileSheet open={sshPortConfirm !== null} onOpenChange={(next: boolean) => {
         if (!next) {
           setSshPortConfirm(null);
           setSshPortFieldKey((key) => key + 1);
@@ -1304,7 +1385,7 @@ function FirewallContent() {
           </Flex>
         </AppDialogContent>
       </Dialog.Root>
-      <Dialog.Root open={denyConfirm} onOpenChange={(next: boolean) => { if (!next) setDenyConfirm(false); }}>
+      <Dialog.Root mobileSheet open={denyConfirm} onOpenChange={(next: boolean) => { if (!next) setDenyConfirm(false); }}>
         <AppDialogContent title={t("firewall.default_deny_confirm_title")} description={t("firewall.default_deny_help")}>
           <Flex justify="end" gap="2" className="mt-4">
             <MuiButton onClick={() => setDenyConfirm(false)}>{t("common.cancel")}</MuiButton>
@@ -1322,7 +1403,7 @@ function FirewallContent() {
           </Flex>
         </AppDialogContent>
       </Dialog.Root>
-      <Dialog.Root open={authOpen} onOpenChange={(next: boolean) => { if (!next) { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); } }}>
+      <Dialog.Root mobileSheet open={authOpen} onOpenChange={(next: boolean) => { if (!next) { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); setPendingProtection(false); protectionRunRef.current = null; } }}>
         <AppDialogContent title={t("firewall.auth_title")} description={t("firewall.auth_help")}>
           <MuiTextField
             size="small"
@@ -1338,13 +1419,21 @@ function FirewallContent() {
             }}
           />
           <Flex justify="end" gap="2" className="mt-4">
-            <MuiButton onClick={() => { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); }}>{t("common.cancel")}</MuiButton>
+            <MuiButton onClick={() => { setAuthOpen(false); setPendingSave(null); setPendingInstall(false); setPendingProtection(false); protectionRunRef.current = null; }}>{t("common.cancel")}</MuiButton>
             {passkeyAvailable ? (
               <MuiButton
                 variant="outlined"
-                disabled={busy || (!pendingSave && !pendingInstall)}
+                disabled={busy || (!pendingSave && !pendingInstall && !pendingProtection)}
                 onClick={() => {
-                  const run = pendingInstall
+                  const run = pendingProtection && protectionRunRef.current
+                    ? authorize("", "", true).then((grant) => {
+                        const task = protectionRunRef.current;
+                        protectionRunRef.current = null;
+                        setPendingProtection(false);
+                        setAuthOpen(false);
+                        return task?.(grant);
+                      })
+                    : pendingInstall
                     ? installNftables("", "", true)
                     : pendingSave
                       ? saveIntent(pendingSave, "", "", true)
@@ -1359,9 +1448,17 @@ function FirewallContent() {
             ) : null}
             <MuiButton
               variant="contained"
-              disabled={busy || (!pendingSave && !pendingInstall) || (twoFaEnabled ? !authOtp.trim() : !authPassword.trim())}
+              disabled={busy || (!pendingSave && !pendingInstall && !pendingProtection) || (twoFaEnabled ? !authOtp.trim() : !authPassword.trim())}
               onClick={() => {
-                const run = pendingInstall
+                const run = pendingProtection && protectionRunRef.current
+                  ? authorize(authPassword, authOtp, false).then((grant) => {
+                      const task = protectionRunRef.current;
+                      protectionRunRef.current = null;
+                      setPendingProtection(false);
+                      setAuthOpen(false);
+                      return task?.(grant);
+                    })
+                  : pendingInstall
                   ? installNftables(authPassword, authOtp, false)
                   : pendingSave
                     ? saveIntent(pendingSave, authPassword, authOtp, false)
@@ -1437,7 +1534,7 @@ function RuleDialog({
     }
   };
   return (
-    <Dialog.Root open={open} onOpenChange={(next: boolean) => { if (!next) onClose(); }}>
+    <Dialog.Root mobileSheet open={open} onOpenChange={(next: boolean) => { if (!next) onClose(); }}>
       <AppDialogContent title={rule ? t("firewall.edit") : t("firewall.create")} description={t("firewall.dialog_help", { stack: stack.toUpperCase() })}>
         <Box
           sx={{

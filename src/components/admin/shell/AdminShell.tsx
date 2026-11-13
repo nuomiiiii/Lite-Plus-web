@@ -147,6 +147,7 @@ export default function AdminShell({ content }: AdminShellProps) {
     });
 
     const registerTabList = (list: HTMLElement) => {
+      if (list.closest(".firewall-protection-tabs")) return;
       if (tabLists.has(list)) return;
       tabLists.add(list);
       resizeObserver.observe(list);

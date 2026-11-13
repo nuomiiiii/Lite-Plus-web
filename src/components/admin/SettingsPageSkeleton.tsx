@@ -1,12 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { Box, Flex, Skeleton } from "@/components/admin/ui";
 
-const SettingsPageSkeleton = () => {
+const SettingsPageSkeleton = ({ inline = false }: { inline?: boolean }) => {
   const { t } = useTranslation();
   return (
   <Flex
     aria-label={t("common.loading", "加载中...")}
-    data-admin-route-pending="true"
+    data-admin-route-pending={inline ? undefined : "true"}
     direction="column"
     gap="3"
     role="status"

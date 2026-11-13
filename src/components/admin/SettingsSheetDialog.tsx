@@ -25,6 +25,7 @@ type SettingsSheetDialogProps = {
   disableEscapeKeyDown?: boolean;
   conceal?: boolean;
   hideBackdrop?: boolean;
+  scrollContent?: boolean;
 };
 
 export default function SettingsSheetDialog({
@@ -39,6 +40,7 @@ export default function SettingsSheetDialog({
   disableEscapeKeyDown = false,
   conceal = false,
   hideBackdrop = false,
+  scrollContent = false,
 }: SettingsSheetDialogProps) {
   const { t } = useTranslation();
   const reduceMotion = useReduceMotionPreference();
@@ -63,6 +65,7 @@ export default function SettingsSheetDialog({
           className: "km-admin-sheet-panel",
           sx: {
             visibility: dialogPaperVisibility(open, conceal),
+            ...(scrollContent ? { overflow: "hidden" } : {}),
             width: { xs: "100%", sm: maxWidth },
             maxWidth: { xs: "100%", sm: maxWidth },
             m: { xs: 0, sm: 2 },
@@ -137,6 +140,7 @@ export default function SettingsSheetDialog({
           display: "flex",
           flexDirection: "column",
           gap: 2,
+          ...(scrollContent ? { minHeight: 0, overflowY: "auto" } : {}),
           "&:first-of-type": { paddingTop: "0 !important" },
         }}
       >
@@ -149,6 +153,7 @@ export default function SettingsSheetDialog({
             py: 2,
             gap: 1,
             justifyContent: "flex-end",
+            ...(scrollContent ? { borderTop: 1, borderColor: "divider" } : {}),
             "& > :not(style) ~ :not(style)": { ml: 0 },
           }}
         >

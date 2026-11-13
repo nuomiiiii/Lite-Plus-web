@@ -173,6 +173,10 @@ export const preloadAdminRoute = async (target: string): Promise<void> => {
       void import("./pages/admin/remote-management/firewallPrefetch")
         .then((mod) => mod.prefetchFirewallView(uuid))
         .catch(() => undefined);
+      void import("./pages/admin/remote-management/firewall/protection/prefetch")
+        .then((mod) => mod.prefetchProtectionView(uuid))
+        .catch(() => undefined);
+      void import("./pages/admin/remote-management/firewall/protection").catch(() => undefined);
     }
   }
   await Promise.all(

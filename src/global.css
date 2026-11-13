@@ -2805,6 +2805,81 @@ html.dark [data-admin-shell] .admin-ping-loss-sheets .km-admin-sheet-tabs-action
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
+.km-admin-sheet-tabs.firewall-protection-tabs {
+  --protection-tab-active-bg: #fff;
+  --protection-tab-active-color: #078dee;
+  --protection-tab-height: 36px;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  border: 0;
+  border-radius: 10px;
+  background: #f4f6f8;
+}
+
+.firewall-protection-tabs .MuiTabs-scrollButtons {
+  display: none;
+}
+
+.firewall-protection-tabs .MuiTabs-root,
+.firewall-protection-tabs [role="tablist"] {
+  min-height: var(--protection-tab-height);
+}
+
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root {
+  z-index: 1;
+  overflow: visible;
+  height: var(--protection-tab-height);
+  min-height: var(--protection-tab-height);
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: #637381;
+}
+
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected,
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected:hover {
+  background: var(--protection-tab-active-bg);
+  color: var(--protection-tab-active-color);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08);
+}
+
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected,
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected * {
+  color: var(--protection-tab-active-color);
+}
+
+.km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root.Mui-selected::after,
+[data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs [data-admin-tab-motion-ready="true"]::after,
+[data-admin-shell] .km-admin-sheet-tabs.firewall-protection-tabs [data-admin-tab-motion-ready="true"] .MuiTab-root.Mui-selected::after {
+  content: none;
+}
+
+[data-admin-shell] .firewall-protection-tabs [data-admin-tab-motion-ready="true"] .MuiTab-root.Mui-selected,
+[data-admin-shell] .firewall-protection-tabs [data-admin-tab-motion-ready="true"] .MuiTab-root.Mui-selected:hover {
+  background: var(--protection-tab-active-bg);
+  color: var(--protection-tab-active-color);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08);
+}
+
+html.dark .km-admin-sheet-tabs.firewall-protection-tabs {
+  --protection-tab-active-bg: #212b36;
+  --protection-tab-active-color: #48a9ee;
+  background: #161c24;
+}
+
+html.dark .km-admin-sheet-tabs.firewall-protection-tabs .MuiTab-root:not(.Mui-selected) {
+  color: #919eab;
+}
+
+@media (max-width: 599px) {
+  .km-admin-sheet-tabs.firewall-protection-tabs {
+    --protection-tab-height: 40px;
+    width: 100%;
+  }
+}
+
 html[data-reduce-motion="true"] [data-admin-shell] [data-admin-tab-motion-ready="true"]::after {
   transition: none !important;
 }

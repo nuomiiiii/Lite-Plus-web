@@ -140,6 +140,9 @@ test("firewall reuses the admin node list and keeps route loading on the page ch
   assert.match(source, /data-admin-route-pending=\{detailPending \? "true" : undefined\}/);
   assert.match(source, /onPointerEnter=\{\(\) => onPrefetch\?\.\(node\.uuid\)\}/);
   assert.match(source, /prefetchFirewallView/);
+  assert.match(source, /prefetchProtectionView/);
+  assert.match(source, /warmServiceProtection/);
+  assert.match(source, /SettingsPageSkeleton inline/);
   assert.match(source, /<Loading inline text=""/);
 });
 

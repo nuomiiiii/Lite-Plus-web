@@ -67,7 +67,7 @@ test("admin warmup respects reduced-data connections", () => {
   assert.doesNotMatch(viewport, /readyFrames/);
   assert.doesNotMatch(viewport, /characterData: true/);
   assert.match(loading, /data-admin-route-pending=\{inline \? undefined : "true"\}/);
-  assert.match(settingsSkeleton, /data-admin-route-pending="true"/);
+  assert.match(settingsSkeleton, /data-admin-route-pending=\{inline \? undefined : "true"\}/);
 
   const managedTheme = readFileSync(
     "src/pages/admin/theme_managed.tsx",
