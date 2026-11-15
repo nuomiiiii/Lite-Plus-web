@@ -106,6 +106,12 @@ test("shadowsocks outbound copy keeps inbound network", () => {
 
   const tcp = outboundFieldsFromInbound({ protocol: "shadowsocks", transport: "tcp", port: 8388 }, null);
   assert.equal(tcp.transport, "tcp");
+
+  const dummyTransport = outboundFieldsFromInbound(
+    { protocol: "shadowsocks", transport: "tcp", ss_network: "tcp,udp", port: 8388 },
+    null,
+  );
+  assert.equal(dummyTransport.transport, "tcp,udp");
 });
 
 test("copies REALITY inbound fields into an outbound", () => {
