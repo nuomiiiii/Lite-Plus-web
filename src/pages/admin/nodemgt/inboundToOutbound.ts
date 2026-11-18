@@ -92,6 +92,11 @@ function shadowsocksCopyNetwork(inbound: any) {
   return "tcp,udp";
 }
 
+function quicProtocol(protocol: string) {
+  const value = String(protocol || "").trim().toLowerCase();
+  return value === "hysteria2" || value === "tuic";
+}
+
 export function outboundFieldsFromInbound(
   inbound: any,
   node?: { ipv4?: string; ipv6?: string } | null,
@@ -102,7 +107,7 @@ export function outboundFieldsFromInbound(
   const transport = protocol === "shadowsocks" ? shadowsocksCopyNetwork(inbound) : String(inbound?.transport || "tcp");
   const address = inboundShareHost(inbound, node, cert);
   const dest_port = inboundSharePort(inbound);
-  const sni = shareSNI(inbound, security);
+  const sni = shareSNI(inbound, security) || (security === "tls" ? issuedCertDomain(inbound, cert) : "");
   const ws = transport === "ws" || transport === "httpupgrade";
   return {
     protocol,
@@ -113,7 +118,8 @@ export function outboundFieldsFromInbound(
     transport,
     security,
     sni,
-    fingerprint: String(inbound?.fingerprint || "edge"),
+    alpn: String(inbound?.alpn || "").trim(),
+    fingerprint: quicProtocol(protocol) ? "" : String(inbound?.fingerprint || "edge"),
     ws_path: ws ? String(inbound?.ws_path || "/") : "",
     ws_host: ws ? String(inbound?.ws_host || "") : "",
     grpc_service: transport === "grpc" ? String(inbound?.grpc_service || "gun") : "",

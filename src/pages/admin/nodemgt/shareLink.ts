@@ -10,6 +10,7 @@ export type ShareLinkFields = {
   transport?: string;
   security?: string;
   sni?: string;
+  alpn?: string;
   fingerprint?: string;
   ws_path?: string;
   ws_host?: string;
@@ -96,7 +97,8 @@ function parseURI(raw: string): ShareLinkFields | null {
     transport,
     security,
     sni: pick(q, "sni", "servername", "peer"),
-    fingerprint: pick(q, "fp", "fingerprint"),
+    alpn: pick(q, "alpn"),
+    fingerprint: quic ? "" : pick(q, "fp", "fingerprint"),
     flow: pick(q, "flow"),
     ws_path: pick(q, "path"),
     ws_host: pick(q, "host", "authority"),
@@ -141,6 +143,7 @@ function parseVmess(raw: string): ShareLinkFields | null {
     transport: transportOf(net),
     security: securityOf(tls),
     sni: str("sni") || str("host"),
+    alpn: str("alpn"),
     fingerprint: str("fp"),
     ws_path: str("path"),
     ws_host: str("host"),

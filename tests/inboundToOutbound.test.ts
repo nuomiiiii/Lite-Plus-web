@@ -49,6 +49,8 @@ test("copies hysteria2 and tuic inbound fields into an outbound", () => {
       transport: "quic",
       security: "tls",
       sni: "hy2.example.com",
+      alpn: "h3",
+      fingerprint: "edge",
       share_strategy: "other",
       public_host: "hy2.example.com",
     },
@@ -61,6 +63,26 @@ test("copies hysteria2 and tuic inbound fields into an outbound", () => {
   assert.equal(hy2.address, "hy2.example.com");
   assert.equal(hy2.dest_port, "443");
   assert.equal(hy2.sni, "hy2.example.com");
+  assert.equal(hy2.alpn, "h3");
+  assert.equal(hy2.fingerprint, "");
+
+  const hy2CertFallback = outboundFieldsFromInbound(
+    {
+      protocol: "hysteria2",
+      core: "sing-box",
+      port: 8443,
+      transport: "quic",
+      security: "tls",
+      share_strategy: "other",
+      public_host: "203.0.113.88",
+      fingerprint: "chrome",
+    },
+    { ipv4: "203.0.113.88" },
+    { domain: "*.example.com", share_domain: "hk.example.com", status: "issued" },
+  );
+  assert.equal(hy2CertFallback.address, "203.0.113.88");
+  assert.equal(hy2CertFallback.sni, "hk.example.com");
+  assert.equal(hy2CertFallback.fingerprint, "");
 
   const tuic = outboundFieldsFromInbound({
     protocol: "tuic",
@@ -69,12 +91,16 @@ test("copies hysteria2 and tuic inbound fields into an outbound", () => {
     transport: "quic",
     security: "tls",
     sni: "tuic.example.com",
+    alpn: "h3",
+    fingerprint: "edge",
     share_strategy: "other",
     public_host: "tuic.example.com",
   });
   assert.equal(tuic.protocol, "tuic");
   assert.equal(tuic.transport, "quic");
   assert.equal(tuic.dest_port, "8443");
+  assert.equal(tuic.alpn, "h3");
+  assert.equal(tuic.fingerprint, "");
 });
 
 test("hysteria2 inbound password is the user secret", async () => {

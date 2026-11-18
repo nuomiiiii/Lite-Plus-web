@@ -794,6 +794,10 @@ function outboundTransportsFor(protocol: string) {
   return [...OUTBOUND_TRANSPORTS];
 }
 
+function outboundUsesUTLS(protocol: string) {
+  return protocol !== "hysteria2" && protocol !== "tuic";
+}
+
 function outboundForm(row?: any): FormMap {
   const protocol = str(row?.protocol, "vless");
   const core = str(row?.core, defaultCore(protocol));
@@ -821,7 +825,8 @@ function outboundForm(row?: any): FormMap {
     transport,
     security,
     sni: str(row?.sni),
-    fingerprint: str(row?.fingerprint, DEFAULT_FINGERPRINT),
+    alpn: str(row?.alpn),
+    fingerprint: outboundUsesUTLS(protocol) ? str(row?.fingerprint, DEFAULT_FINGERPRINT) : "",
     ws_path: str(row?.ws_path, "/"),
     ws_host: str(row?.ws_host),
     grpc_service: str(row?.grpc_service, "gun"),
@@ -1131,7 +1136,8 @@ function outboundUpsertBody(form: FormMap) {
     transport: form.transport,
     security: form.security,
     sni: form.sni,
-    fingerprint: form.fingerprint,
+    alpn: form.alpn,
+    fingerprint: outboundUsesUTLS(form.protocol) ? form.fingerprint : "",
     ws_path: form.ws_path,
     ws_host: form.ws_host,
     grpc_service: form.grpc_service,
@@ -3146,7 +3152,8 @@ export default function PlusAdminPage() {
       transport: parsed.transport || defaultTransport(protocol),
       security: parsed.security || defaultSecurity(protocol),
       sni: parsed.sni || "",
-      fingerprint: parsed.fingerprint || DEFAULT_FINGERPRINT,
+      alpn: parsed.alpn || "",
+      fingerprint: outboundUsesUTLS(protocol) ? parsed.fingerprint || DEFAULT_FINGERPRINT : "",
       ws_path: parsed.ws_path || "/",
       ws_host: parsed.ws_host || "",
       grpc_service: parsed.grpc_service || "gun",
@@ -5406,6 +5413,7 @@ export default function PlusAdminPage() {
                     core: defaultCore(value),
                     transport,
                     security,
+                    fingerprint: outboundUsesUTLS(value) ? sheet.form.fingerprint || DEFAULT_FINGERPRINT : "",
                   });
                 }}
                 options={protocolsForCore(sheet.form.core, OUTBOUND_PROTOCOLS, sheet.form.protocol).map((value) => ({ value, label: t(`nodemgt.outbound_${value}`) }))}
@@ -5493,15 +5501,24 @@ export default function PlusAdminPage() {
                   />
                 </TwoCol>
                 {sheet.form.security === "tls" || sheet.form.security === "reality" ? (
-                  <TwoCol>
-                    <Field label={t("nodemgt.sni")} value={sheet.form.sni} onChange={(value) => setForm({ sni: value })} />
-                    <SelectField
-                      label={t("nodemgt.utls_fingerprint")}
-                      value={sheet.form.fingerprint || DEFAULT_FINGERPRINT}
-                      onChange={(value) => setForm({ fingerprint: value })}
-                      options={FINGERPRINTS.map((value) => ({ value, label: value }))}
-                    />
-                  </TwoCol>
+                  <>
+                    <TwoCol>
+                      <Field label={t("nodemgt.sni")} value={sheet.form.sni} onChange={(value) => setForm({ sni: value })} />
+                      {outboundUsesUTLS(sheet.form.protocol) ? (
+                        <SelectField
+                          label={t("nodemgt.utls_fingerprint")}
+                          value={sheet.form.fingerprint || DEFAULT_FINGERPRINT}
+                          onChange={(value) => setForm({ fingerprint: value })}
+                          options={FINGERPRINTS.map((value) => ({ value, label: value }))}
+                        />
+                      ) : (
+                        <Field label={t("nodemgt.alpn")} value={sheet.form.alpn} onChange={(value) => setForm({ alpn: value })} placeholder="h3" />
+                      )}
+                    </TwoCol>
+                    {sheet.form.security === "tls" && outboundUsesUTLS(sheet.form.protocol) ? (
+                      <Field label={t("nodemgt.alpn")} value={sheet.form.alpn} onChange={(value) => setForm({ alpn: value })} placeholder="h2,http/1.1" />
+                    ) : null}
+                  </>
                 ) : null}
                 {sheet.form.security === "reality" ? (
                   <>
