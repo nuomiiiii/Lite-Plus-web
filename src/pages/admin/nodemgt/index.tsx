@@ -268,7 +268,7 @@ const panelSx = {
 } as const;
 
 function newOp() {
-  return crypto.randomUUID();
+  return createRandomId();
 }
 
 function asList(data: unknown): any[] {
@@ -621,8 +621,7 @@ type ExtraLinkRow = {
 };
 
 function extraLinkID() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return createRandomId();
 }
 
 function extraLinksFormValue(raw: unknown) {
