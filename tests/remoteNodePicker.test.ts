@@ -175,7 +175,7 @@ test("keeps the terminal portal aligned with the dashboard visual language", () 
   assert.match(terminalStyles, /\.remote-picker-paper\.is-center/);
   assert.match(terminalStyles, /@keyframes remote-picker-center-in/);
   assert.match(terminalStyles, /animation: remote-picker-center-in 360ms/);
-  assert.match(terminalStyles, /\.remote-picker-paper \{[\s\S]*?\n  height: auto;/);
+  assert.match(terminalStyles, /\.remote-picker-paper \{[\s\S]*?\n {2}height: auto;/);
   assert.match(pickerSource, /overflow: compact \? "auto" : "hidden"/);
 });
 

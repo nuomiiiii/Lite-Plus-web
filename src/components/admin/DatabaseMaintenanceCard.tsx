@@ -1,4 +1,13 @@
 import { formatBytes } from "@/utils/unitHelper";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import {
+  isPlainObject,
+  parseDatabaseOverview,
+  parseMaintenanceResult,
+  type DatabaseInfo,
+  type DatabaseMaintenanceResult,
+  type DatabaseOverview,
+} from "@/lib/databaseMaintenanceValidation";
 import { getDatabaseRuntimeHealth } from "@/lib/databaseRuntime";
 import {
   AppDialogContent, Badge, Button, Dialog, Flex, Progress, Text } from "@/components/admin/ui";
@@ -6,81 +15,8 @@ import { Activity, DatabaseZap, RefreshCw } from "@/components/admin/muiIcons";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { z } from "zod";
 import { SettingCard } from "./SettingCard";
 
-const maintenanceActionSchema = z.enum([
-  "vacuum",
-  "optimize",
-  "vacuum_full",
-]);
-const nullableSizeSchema = z.number().finite().nonnegative().nullable();
-const databaseFilesSchema = z.object({
-  database: z.number().finite().nonnegative(),
-  wal: z.number().finite().nonnegative(),
-  shm: z.number().finite().nonnegative(),
-});
-const nullableTimestampSchema = z.string().datetime().nullable();
-const digestHandoffStatusSchema = z.object({
-  metric: z.string(),
-  reason: z.string(),
-  at: nullableTimestampSchema,
-});
-const databaseRuntimeStatusSchema = z.object({
-  compacting: z.boolean(),
-  current_metric: z.string(),
-  progress: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
-  cycle_written: z.number().int().nonnegative(),
-  cycle_started_at: nullableTimestampSchema,
-  last_step_at: nullableTimestampSchema,
-  last_cycle_completed_at: nullableTimestampSchema,
-  checkpoint_applicable: z.boolean(),
-  last_checkpoint_attempt_at: nullableTimestampSchema,
-  last_checkpoint_success_at: nullableTimestampSchema,
-  next_checkpoint_at: nullableTimestampSchema,
-  checkpoint_pending: z.boolean(),
-  consecutive_checkpoint_failures: z.number().int().nonnegative(),
-  consecutive_cycle_failures: z.number().int().nonnegative(),
-  last_error: z.string().optional(),
-  digest_handoff_deferred: z
-    .array(digestHandoffStatusSchema)
-    .nullable()
-    .default([])
-    .transform((value) => value ?? []),
-});
-const databaseInfoSchema = z.object({
-  driver: z.string().trim().min(1),
-  location: z.enum(["local", "external"]),
-  size: nullableSizeSchema,
-  files: databaseFilesSchema.optional(),
-  runtime: databaseRuntimeStatusSchema.optional(),
-  action: maintenanceActionSchema,
-  error: z.string().optional(),
-});
-const databaseOverviewSchema = z.object({
-  main: databaseInfoSchema,
-  monitoring: databaseInfoSchema,
-  local_total: nullableSizeSchema,
-});
-const maintenanceItemSchema = z.object({
-  driver: z.string().trim().min(1),
-  action: maintenanceActionSchema,
-  before: nullableSizeSchema,
-  after: nullableSizeSchema,
-  success: z.boolean(),
-  error: z.string().optional(),
-  size_error: z.string().optional(),
-});
-const maintenanceResultSchema = z.object({
-  all_succeeded: z.boolean(),
-  main: maintenanceItemSchema,
-  monitoring: maintenanceItemSchema,
-});
-
-type DatabaseInfo = z.infer<typeof databaseInfoSchema>;
-type DatabaseOverview = z.infer<typeof databaseOverviewSchema>;
-type DatabaseMaintenanceResult = z.infer<typeof maintenanceResultSchema>;
 type TranslationFunction = ReturnType<typeof useTranslation>["t"];
 
 let databaseOverviewSnapshot: DatabaseOverview | null = null;
@@ -89,9 +25,7 @@ export function getDatabaseOverviewSnapshot(): DatabaseOverview | null {
   return databaseOverviewSnapshot;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const isRecord = isPlainObject;
 
 async function requestAdminData(
   input: RequestInfo | URL,
@@ -130,10 +64,10 @@ export async function prefetchDatabaseOverview(): Promise<DatabaseOverview | nul
       "/api/admin/database/size",
       "Failed to load database overview",
     );
-    const parsed = databaseOverviewSchema.safeParse(data);
-    if (!parsed.success) return databaseOverviewSnapshot;
-    databaseOverviewSnapshot = parsed.data;
-    return parsed.data;
+    const parsed = parseDatabaseOverview(data);
+    if (!parsed) return databaseOverviewSnapshot;
+    databaseOverviewSnapshot = parsed;
+    return parsed;
   } catch {
     return databaseOverviewSnapshot;
   }
@@ -567,13 +501,13 @@ export function DatabaseMaintenanceCard({
         "/api/admin/database/size",
         fallbackMessage,
       );
-      const parsed = databaseOverviewSchema.safeParse(data);
-      if (!parsed.success) {
+      const parsed = parseDatabaseOverview(data);
+      if (!parsed) {
         throw new Error(t("settings.database.invalid_response"));
       }
 
-      setOverview(parsed.data);
-      databaseOverviewSnapshot = parsed.data;
+      setOverview(parsed);
+      databaseOverviewSnapshot = parsed;
       setLoadError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -590,11 +524,11 @@ export function DatabaseMaintenanceCard({
 
   React.useEffect(() => {
     void fetchOverview();
-    const timer = window.setInterval(() => {
-      void fetchOverview(true);
-    }, 10_000);
-    return () => window.clearInterval(timer);
   }, [fetchOverview]);
+
+  useVisibleInterval(() => {
+    void fetchOverview(true);
+  }, 10_000);
 
   const handleMaintenance = async () => {
     if (!overview || maintaining) return;
@@ -607,12 +541,11 @@ export function DatabaseMaintenanceCard({
         t("settings.database.maintenance_error"),
         { method: "POST" },
       );
-      const parsed = maintenanceResultSchema.safeParse(data);
-      if (!parsed.success) {
+      const result = parseMaintenanceResult(data);
+      if (!result) {
         throw new Error(t("settings.database.invalid_response"));
       }
 
-      const result = parsed.data;
       const allItemsSucceeded = result.main.success && result.monitoring.success;
       if (result.all_succeeded && allItemsSucceeded) {
         toast.success(t("settings.database.maintenance_success"));

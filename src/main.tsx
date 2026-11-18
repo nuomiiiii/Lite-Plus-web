@@ -1,4 +1,4 @@
-import React, { lazy, StrictMode, Suspense, useCallback, useLayoutEffect, useMemo } from "react";
+import React, { StrictMode, Suspense, useCallback, useLayoutEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import "./global.css";
@@ -9,11 +9,11 @@ import {
 } from "./contexts/ThemeContext";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { useSystemTheme } from "./hooks/useSystemTheme";
-import { BrowserRouter, useRoutes } from "react-router-dom";
+import { BrowserRouter, useLocation, useRoutes } from "react-router-dom";
 // Ensure i18n is initialized before any component renders
 import { i18nReady } from "./i18n/config";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { preloadAdminEntry, preloadAdminRoute, routes } from "./routes";
+import { preloadAdminEntry, preloadAdminRoute, preloadAdminRouteChunks, routes } from "./routes";
 import Loading from "./components/loading";
 import { PublicInfoProvider } from "./contexts/PublicInfoContext";
 import { OfflineIndicator } from "./components/OfflineIndicator";
@@ -35,7 +35,7 @@ import { applyAppearanceChrome } from "./theme/appearanceChrome";
 import { clientCookieSuffix, isSafeTempKey } from "./utils/security";
 import { preparePrivateApplication } from "./utils/preparePrivateApplication";
 
-const RadixThemeRoot = lazy(() => import("./theme/RadixThemeRoot"));
+import RadixThemeRoot from "./theme/RadixThemeRoot";
 
 const appShellStyle = {
   backgroundColor: "transparent",
@@ -68,7 +68,7 @@ const AdminRoutePreloader = () => {
     const startWarmup = () => {
       stopWarmup = scheduleIdleAdminWarmup({
         targets,
-        preload: preloadAdminRoute,
+        preload: preloadAdminRouteChunks,
         timers: {
           requestIdleCallback: window.requestIdleCallback?.bind(window),
           cancelIdleCallback: window.cancelIdleCallback?.bind(window),
@@ -103,7 +103,8 @@ const AccountScopedRPC2 = ({ children }: { children: React.ReactNode }) => {
 };
 
 const App = () => {
-	const currentPath = window.location.pathname.replace(/\/$/, "");
+	const { pathname } = useLocation();
+	const currentPath = pathname.replace(/\/$/, "");
 	const isAdminRoute = currentPath === "/admin" || currentPath.startsWith("/admin/");
 	const isRemoteRoute = currentPath === "/terminal" || currentPath.startsWith("/terminal/");
 	const usePlainThemeRoot = isAdminRoute || isRemoteRoute;
@@ -186,41 +187,32 @@ const App = () => {
       <AccountPreferenceSync />
       <SessionActivitySync />
       <AdminRoutePreloader />
-      <AccountScopedRPC2>
-        <PublicInfoProvider>
-          <DocumentTitle />
-          <Toaster />
-          <OfflineIndicator />
+      <PublicInfoProvider>
+        <DocumentTitle />
+        <Toaster />
+        <OfflineIndicator />
+        <AccountScopedRPC2>
           <Suspense
             fallback={isAdminRoute ? <FullPageLoading /> : <Loading fullscreen />}
           >
             {routing}
           </Suspense>
-        </PublicInfoProvider>
-      </AccountScopedRPC2>
+        </AccountScopedRPC2>
+      </PublicInfoProvider>
     </AccountProvider>
   );
   return (
     <ThemeContext.Provider value={themeContextValue}>
       <MuiAppProvider appearance={resolvedAppearance}>
       <ErrorBoundary>
-      {usePlainThemeRoot ? (
-        <div className="theme-root" style={appShellStyle}>
-          {appTree}
-        </div>
-      ) : (
-        <Suspense
-          fallback={
-            <div className="theme-root" style={appShellStyle}>
-              <Loading fullscreen />
-            </div>
-          }
+        <RadixThemeRoot
+          appearance={resolvedAppearance}
+          scaling="110%"
+          plain={usePlainThemeRoot}
+          style={appShellStyle}
         >
-          <RadixThemeRoot appearance={resolvedAppearance} scaling="110%">
-            {appTree}
-          </RadixThemeRoot>
-        </Suspense>
-      )}
+          {appTree}
+        </RadixThemeRoot>
       </ErrorBoundary>
       </MuiAppProvider>
     </ThemeContext.Provider>

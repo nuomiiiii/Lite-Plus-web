@@ -6,7 +6,7 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { alpha, useTheme } from "@mui/material/styles";
-import { Check, Upload } from "lucide-react";
+import { Check, Upload } from "@/components/admin/muiIcons";
 import type { FormEventHandler, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 

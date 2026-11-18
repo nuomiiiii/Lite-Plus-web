@@ -166,6 +166,7 @@ import {
   AdminPagination,
 } from "@/components/admin/AdminPagination";
 import { useAdminDefaultPageSize } from "@/hooks/useAdminDefaultPageSize";
+import { startVisibleInterval, useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
   AdminNodeLiveDataProvider,
   nodeOnlineState,
@@ -384,12 +385,9 @@ const Layout = () => {
     ],
   );
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refresh();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  useVisibleInterval(() => {
+    refresh();
+  }, 15000);
 
   if (isLoading) return <Loading text="" />;
   if (error) return <div>{error}</div>;
@@ -2369,10 +2367,10 @@ function GenerateCommandButton({ node, settings, initiallyOpen = false, onClose 
     }
     const controller = new AbortController();
     let attempts = 0;
-    const timer = window.setInterval(() => {
+    const stopPolling = startVisibleInterval(() => {
       attempts += 1;
       if (attempts > 30) {
-        window.clearInterval(timer);
+        stopPolling();
         return;
       }
       void fetch(`/api/admin/client/${node.uuid}/deployment-profile`, {
@@ -2389,7 +2387,7 @@ function GenerateCommandButton({ node, settings, initiallyOpen = false, onClose 
     }, 2000);
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [deliveryStatus, node.uuid, open, refresh]);
 

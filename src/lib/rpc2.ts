@@ -1,6 +1,7 @@
 import type {
   JSONRPC2Request,
   JSONRPC2Response,
+  JSONRPC2SuccessResponse,
   JSONRPC2BatchRequest,
   JSONRPC2BatchResponse,
   RPC2ConnectionStateType,
@@ -11,6 +12,11 @@ import type {
 import { RPC2ConnectionState } from "../types/rpc2";
 import i18n from "../i18n/config";
 import { sameOriginApiPath, sameOriginFetchInit } from "../utils/security";
+import {
+  isRPC2ErrorResponse,
+  resolveRPC2BatchResponses,
+  unwrapRPC2Response,
+} from "./rpc2Response";
 
 /**
  * RPC2 客户端类
@@ -28,6 +34,7 @@ export class RPC2Client {
   private reconnectAttempts = 0;
   private reconnectTimeout?: NodeJS.Timeout;
   private heartbeatInterval?: NodeJS.Timeout;
+  private visibilityListener?: () => void;
   private eventListeners: RPC2EventListeners = {};
 
   private readonly baseUrl: string;
@@ -54,6 +61,7 @@ export class RPC2Client {
 
     // 自动建立连接
     if (this.options.autoConnect) {
+      this.attachVisibilityListener();
       this.autoConnect();
     }
   }
@@ -64,6 +72,42 @@ export class RPC2Client {
   private enableSessionReconnect(): void {
     this.options.autoConnect = true;
     this.options.autoReconnect = true;
+    this.attachVisibilityListener();
+  }
+
+  private attachVisibilityListener(): void {
+    if (typeof document === "undefined" || this.visibilityListener) {
+      return;
+    }
+    this.visibilityListener = () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") {
+        return;
+      }
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        return;
+      }
+      if (
+        this.options.autoReconnect &&
+        this.connectionState !== RPC2ConnectionState.CONNECTING
+      ) {
+        if (this.reconnectTimeout) {
+          clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = undefined;
+        }
+        this.reconnectAttempts = 0;
+        this.connect().catch(() => {
+          // Reconnect failure is handled via onclose/onError
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", this.visibilityListener);
+  }
+
+  private detachVisibilityListener(): void {
+    if (typeof document !== "undefined" && this.visibilityListener) {
+      document.removeEventListener("visibilitychange", this.visibilityListener);
+    }
+    this.visibilityListener = undefined;
   }
 
   /**
@@ -155,6 +199,7 @@ export class RPC2Client {
   pause(): void {
     this.options.autoConnect = false;
     this.options.autoReconnect = false;
+    this.detachVisibilityListener();
     this.closeSocket();
   }
 
@@ -265,11 +310,7 @@ export class RPC2Client {
 
       const jsonResponse: JSONRPC2Response<TResult> = await response.json();
 
-      if ("error" in jsonResponse) {
-        throw new Error(`RPC Error ${jsonResponse.error.code}: ${jsonResponse.error.message}`);
-      }
-
-      return jsonResponse.result;
+      return unwrapRPC2Response(jsonResponse);
     } catch (error) {
       if (error instanceof Error) {
         throw error;
@@ -286,6 +327,10 @@ export class RPC2Client {
     params?: any;
     notification?: boolean;
   }>): Promise<any[]> {
+    if (requests.length === 0) {
+      return [];
+    }
+
     const batchRequest: JSONRPC2BatchRequest = requests.map(req => ({
       jsonrpc: "2.0",
       method: req.method,
@@ -307,14 +352,12 @@ export class RPC2Client {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const jsonResponse: JSONRPC2BatchResponse = await response.json();
+      if (batchRequest.every(req => req.id == null)) {
+        return batchRequest.map(() => undefined);
+      }
 
-      return jsonResponse.map(res => {
-        if ("error" in res) {
-          throw new Error(`RPC Error ${res.error.code}: ${res.error.message}`);
-        }
-        return res.result;
-      });
+      const jsonResponse: JSONRPC2BatchResponse = await response.json();
+      return resolveRPC2BatchResponses(batchRequest, jsonResponse);
     } catch (error) {
       if (error instanceof Error) {
         throw error;
@@ -410,10 +453,10 @@ export class RPC2Client {
       clearTimeout(pending.timeout);
     }
 
-    if ("error" in data) {
+    if (isRPC2ErrorResponse(data)) {
       pending.reject(new Error(`RPC Error ${data.error.code}: ${data.error.message}`));
     } else {
-      pending.resolve(data.result);
+      pending.resolve((data as JSONRPC2SuccessResponse).result);
     }
   }
 
@@ -446,6 +489,23 @@ export class RPC2Client {
   /**
    * 启动心跳包
    */
+  private sendHeartbeatPing(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      // 发送心跳包作为通知请求（不期望响应）
+      const heartbeatRequest: JSONRPC2Request = {
+        jsonrpc: "2.0",
+        method: "rpc.ping",
+        params: { timestamp: Date.now() },
+      };
+      this.ws.send(JSON.stringify(heartbeatRequest));
+    } catch (error) {
+      console.warn(i18n.t("rpc2.send_heartbeat_failed"), error);
+    }
+  }
+
   private startHeartbeat(): void {
     // 如果未启用心跳包，则不启动
     if (!this.options.enableHeartbeat) {
@@ -457,19 +517,10 @@ export class RPC2Client {
 
     // 按配置的间隔发送心跳包
     this.heartbeatInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        try {
-          // 发送心跳包作为通知请求（不期望响应）
-          const heartbeatRequest: JSONRPC2Request = {
-            jsonrpc: "2.0",
-            method: "rpc.ping",
-            params: { timestamp: Date.now() }
-          };
-          this.ws.send(JSON.stringify(heartbeatRequest));
-        } catch (error) {
-          console.warn(i18n.t("rpc2.send_heartbeat_failed"), error);
-        }
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
       }
+      this.sendHeartbeatPing();
     }, this.options.heartbeatInterval);
   }
 

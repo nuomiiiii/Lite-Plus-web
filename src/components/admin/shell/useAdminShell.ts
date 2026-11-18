@@ -9,8 +9,10 @@ import { useReduceMotionPreference } from "@/lib/api";
 import { preloadAdminRoute } from "@/routes";
 import type { MenuItem } from "@/types/menu";
 import { buildAdminMenuItems } from "@/utils/adminMenu";
+import { ADMIN_HOVER_PRELOAD_DELAY_MS } from "@/utils/adminPreload";
 import { isSelfUpdatePreview } from "@/utils/guidePreview";
 import { fetchThemeManifest } from "@/utils/themeManifest";
+import { clearAdminNodeLiveDataCache } from "@/hooks/use-admin-node-live-data";
 import { clearStoredRemoteGrant } from "@/utils/remoteSession";
 import {
   getThemeConfigurationType,
@@ -57,6 +59,10 @@ export function useAdminShell() {
   );
   const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("idle");
   const updateInFlight = useRef(false);
+  const unmountedRef = useRef(false);
+  const updateTimerRef = useRef<number | null>(null);
+  const hoverPreloadTimerRef = useRef<number | null>(null);
+  const hoverPreloadHrefRef = useRef<string | null>(null);
   const [latestRelease, setLatestRelease] = useState<GithubReleaseInfo | null>(
     null,
   );
@@ -335,20 +341,82 @@ export function useAdminShell() {
     return `${url.pathname}${url.search}${url.hash}`;
   };
 
-  const preloadAdminLink = (target: EventTarget | null) => {
+  const clearHoverPreload = useCallback(() => {
+    if (hoverPreloadTimerRef.current !== null) {
+      window.clearTimeout(hoverPreloadTimerRef.current);
+      hoverPreloadTimerRef.current = null;
+    }
+    hoverPreloadHrefRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      clearHoverPreload();
+      if (updateTimerRef.current !== null) {
+        window.clearTimeout(updateTimerRef.current);
+        updateTimerRef.current = null;
+      }
+    };
+  }, [clearHoverPreload]);
+
+  const preloadAdminLink = (target: EventTarget | null, immediate = false) => {
     const href = getAdminLinkTarget(target);
-    if (href) void preloadAdminRoute(href);
+    if (!href) {
+      clearHoverPreload();
+      return;
+    }
+    if (immediate) {
+      clearHoverPreload();
+      void preloadAdminRoute(href);
+      return;
+    }
+    if (hoverPreloadHrefRef.current === href && hoverPreloadTimerRef.current !== null) {
+      return;
+    }
+    clearHoverPreload();
+    hoverPreloadHrefRef.current = href;
+    hoverPreloadTimerRef.current = window.setTimeout(() => {
+      hoverPreloadTimerRef.current = null;
+      hoverPreloadHrefRef.current = null;
+      if (!unmountedRef.current) void preloadAdminRoute(href);
+    }, ADMIN_HOVER_PRELOAD_DELAY_MS);
+  };
+
+  const cancelPreloadAdminLink = (
+    target: EventTarget | null,
+    relatedTarget: EventTarget | null,
+  ) => {
+    const fromHref = getAdminLinkTarget(target);
+    if (!fromHref) return;
+    const toHref = getAdminLinkTarget(relatedTarget);
+    if (toHref === fromHref) return;
+    if (hoverPreloadHrefRef.current === fromHref) {
+      clearHoverPreload();
+    }
   };
 
   const waitForUpdatedService = useCallback(
     async (targetVersion: string, targetHash: string) => {
+      const sleep = (ms: number) =>
+        new Promise<void>((resolve) => {
+          updateTimerRef.current = window.setTimeout(() => {
+            updateTimerRef.current = null;
+            resolve();
+          }, ms);
+        });
       const deadline = Date.now() + 150_000;
       while (Date.now() < deadline) {
-        await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        if (unmountedRef.current) return;
+        await sleep(2_000);
+        if (unmountedRef.current) return;
         try {
           const response = await fetch("/api/version", { cache: "no-store" });
+          if (unmountedRef.current) return;
           if (!response.ok) continue;
           const body = await response.json();
+          if (unmountedRef.current) return;
           const observed = body?.data ?? body;
           if (
             observed?.version === targetVersion &&
@@ -358,7 +426,10 @@ export function useAdminShell() {
             toast.success(
               t("common.self_update_succeeded", "更新成功，正在刷新页面"),
             );
-            window.setTimeout(() => window.location.reload(), 800);
+            updateTimerRef.current = window.setTimeout(() => {
+              updateTimerRef.current = null;
+              if (!unmountedRef.current) window.location.reload();
+            }, 800);
             return;
           }
           const status = await callViaHTTP<unknown, SelfUpdateCapability>(
@@ -366,6 +437,7 @@ export function useAdminShell() {
             {},
             { timeout: 5_000 },
           );
+          if (unmountedRef.current) return;
           if (
             status.last_result?.target_version === targetVersion &&
             ["rolled_back", "rollback_failed", "failed"].includes(
@@ -385,6 +457,7 @@ export function useAdminShell() {
             throw terminalError;
           }
         } catch (error) {
+          if (unmountedRef.current) return;
           if (
             error instanceof Error &&
             error.name === "SelfUpdateTerminalError"
@@ -393,6 +466,7 @@ export function useAdminShell() {
           }
         }
       }
+      if (unmountedRef.current) return;
       throw new Error(
         t(
           "common.self_update_timeout",
@@ -424,11 +498,13 @@ export function useAdminShell() {
         { version: targetVersion, version_hash: targetHash },
         { timeout: 360_000 },
       );
+      if (unmountedRef.current) return;
       setUpdatePhase("restarting");
       toast.info(t("common.self_update_restarting", "更新已校验，服务正在重启"));
       await waitForUpdatedService(targetVersion, targetHash);
     } catch (error) {
       updateInFlight.current = false;
+      if (unmountedRef.current) return;
       const raw =
         error instanceof Error
           ? error.message
@@ -459,11 +535,13 @@ export function useAdminShell() {
     currentReleaseURL,
     formatReleaseVersion,
     preloadAdminLink,
+    cancelPreloadAdminLink,
     startSelfUpdate,
   };
 }
 
 export function logout() {
   clearStoredRemoteGrant();
+  clearAdminNodeLiveDataCache();
   window.open("/api/logout", "_self");
 }

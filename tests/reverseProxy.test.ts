@@ -130,7 +130,7 @@ test("enabling ready built-in HTTPS enters the matching secure page", () => {
 
 test("status polling never overwrites an HTTPS form being edited", () => {
   assert.match(page, /refresh\(false, true\)/);
-  assert.match(page, /setInterval\(\(\) => void refresh\(true\), 5000\)/);
+  assert.match(page, /useVisibleInterval\(\(\) => void refresh\(true\), 5000\)/);
   assert.match(page, /if \(syncForm\)/);
 });
 

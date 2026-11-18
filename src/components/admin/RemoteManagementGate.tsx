@@ -15,6 +15,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import SettingsPageSkeleton from "@/components/admin/SettingsPageSkeleton";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { useSettings } from "@/lib/api";
 import {
   ALLOW_REMOTE_MANAGEMENT_SETTING_PATH,
@@ -216,21 +217,13 @@ export function RequireAllowRemoteManagement({
     if (!enabled) clearStoredRemoteGrant();
   }, [enabled]);
 
-  useEffect(() => {
-    if (loading || !enabled) return;
-    const refresh = () => {
-      void refetch().catch(() => undefined);
-    };
-    const interval = window.setInterval(refresh, 2_000);
-    const onVisible = () => {
-      if (!document.hidden) refresh();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [enabled, loading, refetch]);
+  const refresh = useCallback(() => {
+    void refetch().catch(() => undefined);
+  }, [refetch]);
+
+  useVisibleInterval(refresh, loading || !enabled ? null : 2_000, {
+    runOnVisible: true,
+  });
 
   if (loading) return <>{loadingFallback ?? <SettingsPageSkeleton />}</>;
   if (enabled) return <>{children}</>;

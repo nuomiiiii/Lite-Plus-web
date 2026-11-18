@@ -26,7 +26,7 @@ import {
   ShieldCheck,
   Upload,
   Zap,
-} from "lucide-react";
+} from "@/components/admin/muiIcons";
 import {
   useCallback,
   useEffect,

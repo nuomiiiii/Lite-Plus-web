@@ -1,6 +1,6 @@
 import React from "react";
 import { TextField } from "@/components/admin/ui";
-import { Search } from "lucide-react";
+import { Search } from "@/components/admin/muiIcons";
 import { useTranslation } from "react-i18next";
 import { Checkbox } from "./ui/checkbox";
 import {

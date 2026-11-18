@@ -14,11 +14,12 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import { alpha, useTheme } from "@mui/material/styles";
-import { ArrowRight, HardDrive, Server, Trash2 } from "lucide-react";
+import { ArrowRight, HardDrive, Server, Trash2 } from "@/components/admin/muiIcons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import MigrationGuideShell from "@/components/install/MigrationGuideShell";
+import { startVisibleInterval } from "@/hooks/useVisibleInterval";
 import { isGuidePreview } from "@/utils/guidePreview";
 import { useSearchParams } from "react-router-dom";
 
@@ -170,8 +171,7 @@ const Upgrade127 = () => {
     ) {
       return;
     }
-    const timer = window.setInterval(() => void refreshStatus(), 700);
-    return () => window.clearInterval(timer);
+    return startVisibleInterval(() => void refreshStatus(), 700);
   }, [preview, refreshStatus, status]);
 
   useEffect(() => {

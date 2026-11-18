@@ -258,6 +258,8 @@ export default function DashboardSettingsPage() {
     }
   };
 
+  const timezoneOptions = React.useMemo(() => listTrafficResetTimezones(), []);
+
   if (error && !draft) {
     return (
       <Callout.Root color="red">
@@ -279,8 +281,6 @@ export default function DashboardSettingsPage() {
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const enabledCount = draft.modules.filter((module) => module.enabled).length;
-
-  const timezoneOptions = React.useMemo(() => listTrafficResetTimezones(), []);
 
   const selectPreset = (preset: Exclude<DashboardSettings["preset"], "custom">) => {
     setDraft((current) => dashboardSettingsForPreset(

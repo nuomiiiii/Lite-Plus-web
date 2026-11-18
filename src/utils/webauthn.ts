@@ -37,6 +37,8 @@ export function withPasskeyCreatePreference<T extends Record<string, any>>(
   prefer: PasskeyCreatePrefer,
 ) {
   const { hints: _hints, authenticatorSelection: _selection, ...rest } = options;
+  void _hints;
+  void _selection;
   const authenticatorSelection: Record<string, unknown> = {
     residentKey: "required",
     requireResidentKey: true,

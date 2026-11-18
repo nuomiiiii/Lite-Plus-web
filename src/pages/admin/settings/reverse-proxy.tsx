@@ -1,6 +1,7 @@
 import AdminPageTitle from "@/components/admin/AdminPageTitle";
 import { AdminSheetTabs, AdminTabLabel } from "@/components/admin/AdminSheetTabs";
 import { SettingCard } from "@/components/admin/SettingCard";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { useSettings } from "@/lib/api";
 import {
   CLOUDFLARED_STOP_CONFIRM_TEXT,
@@ -212,9 +213,9 @@ function HTTPSPanel({ onReady }: { onReady: () => void }) {
 
   React.useEffect(() => {
     void refresh(false, true);
-    const timer = window.setInterval(() => void refresh(true), 5000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useVisibleInterval(() => void refresh(true), 5000);
 
   const save = async () => {
     const numericPort = Number.parseInt(port, 10);
@@ -589,13 +590,11 @@ function CloudflareTunnelPanel({ onReady }: { onReady: () => void }) {
 
   React.useEffect(() => {
     void refreshStatus();
-    const timer = window.setInterval(() => {
-      void refreshStatus(true);
-    }, 5000);
-    return () => {
-      window.clearInterval(timer);
-    };
   }, [refreshStatus]);
+
+  useVisibleInterval(() => {
+    void refreshStatus(true);
+  }, 5000);
 
   const withSubmit = async (
     task: () => Promise<CloudflaredStatus>,

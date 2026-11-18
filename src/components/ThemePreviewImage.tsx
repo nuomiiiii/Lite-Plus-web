@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Flex, Text } from "@/components/admin/ui";
-import { Image as ImageIcon } from "lucide-react";
+import { Image as ImageIcon } from "@/components/admin/muiIcons";
 import { resolveThemePreviewStatus } from "@/utils/themePreviewImage";
 
 type ThemePreviewImageProps = {

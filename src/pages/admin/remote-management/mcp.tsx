@@ -83,6 +83,7 @@ import {
 } from "@/hooks/use-admin-node-live-data";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAdminTabParam } from "@/hooks/useAdminTabParam";
+import { startVisibleInterval, useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
   LITE_BLUE,
   LITE_BLUE_SOFT,
@@ -318,13 +319,12 @@ function MCPPageBody() {
     };
   }, [load]);
 
-  useEffect(() => {
-    if (tab !== "leases" && tab !== "operations") return;
-    const timer = window.setInterval(() => {
+  useVisibleInterval(
+    () => {
       void load().catch(() => {});
-    }, MCP_LIVE_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [load, tab]);
+    },
+    tab === "leases" || tab === "operations" ? MCP_LIVE_POLL_MS : null,
+  );
 
   const openAuthorize = () => {
     setParams((current) => {
@@ -539,10 +539,7 @@ function MCPSettingsTab({
   const [saving, setSaving] = useState(false);
   const [durationError, setDurationError] = useState("");
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useVisibleInterval(() => setNow(Date.now()), 15_000);
 
   useEffect(() => {
     if (!settings) return;
@@ -1396,10 +1393,7 @@ function MCPLeasesTab({
     setSelectedID(leases[0]?.id || "");
   }, [leases, selectedID]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useVisibleInterval(() => setNow(Date.now()), 15_000);
 
   const active = leases.filter((lease) => lease.status === "active");
   const runningByLease = useMemo(() => {
@@ -2525,13 +2519,13 @@ function MCPAuthorizeDialog({
         }
       }
     };
-    const timer = window.setInterval(() => {
+    const stopPolling = startVisibleInterval(() => {
       void tick();
     }, 2000);
     void tick();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [open, requestID, editLease]);
 
@@ -2551,13 +2545,13 @@ function MCPAuthorizeDialog({
         // Keep waiting until an AI client starts OAuth.
       }
     };
-    const timer = window.setInterval(() => {
+    const stopPolling = startVisibleInterval(() => {
       void tick();
     }, 2000);
     void tick();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [open, requestID, editLease]);
 

@@ -33,6 +33,7 @@ export function nodeLookup(nodes: readonly MCPNodeRef[]): Map<string, MCPNodeRef
   return map;
 }
 
+// eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
 export function stripANSI(value: string): string {

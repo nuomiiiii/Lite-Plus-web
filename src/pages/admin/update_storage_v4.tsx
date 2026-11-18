@@ -6,7 +6,8 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, RefreshCw } from "lucide-react";
+import { CheckCircle2, RefreshCw } from "@/components/admin/muiIcons";
+import { startVisibleInterval } from "@/hooks/useVisibleInterval";
 
 import MigrationGuideShell from "@/components/install/MigrationGuideShell";
 import { isGuidePreview } from "@/utils/guidePreview";
@@ -99,8 +100,7 @@ export default function StorageV4Upgrade() {
   useEffect(() => {
     if (preview) return;
     if (status?.state === "completed" || status?.state === "failed") return;
-    const timer = window.setInterval(() => void refreshStatus(), 500);
-    return () => window.clearInterval(timer);
+    return startVisibleInterval(() => void refreshStatus(), 500);
   }, [preview, refreshStatus, status?.state]);
 
   useEffect(() => {

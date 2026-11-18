@@ -72,59 +72,8 @@ const adminRoutePreloaders: Record<string, () => Promise<unknown>> = {
   "/admin/notification/ping-loss": () => import("./pages/admin/notification/ping_loss"),
 };
 
-export const preloadAdminRoute = async (target: string): Promise<void> => {
+export const preloadAdminRouteChunks = async (target: string): Promise<void> => {
   const pathname = normalizeAdminPathname(target);
-  if (pathname === "/admin/billing") {
-    void import("./utils/billing")
-      .then((mod) => mod.prefetchBillingCenter())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/reverse-proxy") {
-    void import("./lib/https")
-      .then((mod) => mod.prefetchHTTPSSettings())
-      .catch(() => undefined);
-    void import("./lib/cloudflared")
-      .then((mod) => mod.prefetchCloudflaredStatus())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/xtermjs") {
-    void import("./hooks/useXtermjsSettings")
-      .then((mod) => mod.prefetchXtermjsSettings())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/market/themes") {
-    void import("./lib/themeMarket")
-      .then((mod) => mod.prefetchThemeMarket())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/theme") {
-    void import("./lib/themeList")
-      .then((mod) => mod.prefetchInstalledThemes())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/theme_managed") {
-    void import("./lib/themeManaged")
-      .then((mod) => mod.prefetchThemeManagedConfig())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/dashboard") {
-    void import("./hooks/useDashboardSettings")
-      .then((mod) => mod.prefetchDashboardSettings())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/metrics") {
-    void import("./lib/metricDefinitions")
-      .then((mod) => mod.prefetchMetricDefinitions())
-      .catch(() => undefined);
-    void import("./components/admin/DatabaseMaintenanceCard")
-      .then((mod) => mod.prefetchDatabaseOverview())
-      .catch(() => undefined);
-  }
-  if (pathname === "/admin/settings/account-security") {
-    void import("./lib/accountPasskeys")
-      .then((mod) => mod.prefetchAccountPasskeys())
-      .catch(() => undefined);
-  }
   await Promise.all(
     expandAdminPreloadTargets(pathname).map((path) => {
       const preload = adminRoutePreloaders[path];
@@ -133,11 +82,72 @@ export const preloadAdminRoute = async (target: string): Promise<void> => {
   );
 };
 
+export const preloadAdminRoute = async (
+  target: string,
+  options?: { data?: boolean },
+): Promise<void> => {
+  const pathname = normalizeAdminPathname(target);
+  if (options?.data !== false) {
+    if (pathname === "/admin/billing") {
+      void import("./utils/billing")
+        .then((mod) => mod.prefetchBillingCenter())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/reverse-proxy") {
+      void import("./lib/https")
+        .then((mod) => mod.prefetchHTTPSSettings())
+        .catch(() => undefined);
+      void import("./lib/cloudflared")
+        .then((mod) => mod.prefetchCloudflaredStatus())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/xtermjs") {
+      void import("./hooks/useXtermjsSettings")
+        .then((mod) => mod.prefetchXtermjsSettings())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/market/themes") {
+      void import("./lib/themeMarket")
+        .then((mod) => mod.prefetchThemeMarket())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/theme") {
+      void import("./lib/themeList")
+        .then((mod) => mod.prefetchInstalledThemes())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/theme_managed") {
+      void import("./lib/themeManaged")
+        .then((mod) => mod.prefetchThemeManagedConfig())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/dashboard") {
+      void import("./hooks/useDashboardSettings")
+        .then((mod) => mod.prefetchDashboardSettings())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/metrics") {
+      void import("./lib/metricDefinitions")
+        .then((mod) => mod.prefetchMetricDefinitions())
+        .catch(() => undefined);
+      void import("./components/admin/DatabaseMaintenanceCard")
+        .then((mod) => mod.prefetchDatabaseOverview())
+        .catch(() => undefined);
+    }
+    if (pathname === "/admin/settings/account-security") {
+      void import("./lib/accountPasskeys")
+        .then((mod) => mod.prefetchAccountPasskeys())
+        .catch(() => undefined);
+    }
+  }
+  await preloadAdminRouteChunks(target);
+};
+
 export const preloadAdminRoutes = async (
   targets: readonly string[] = LIKELY_ADMIN_ROUTES,
 ): Promise<void> => {
   for (const target of targets) {
-    await preloadAdminRoute(target);
+    await preloadAdminRouteChunks(target);
   }
 };
 

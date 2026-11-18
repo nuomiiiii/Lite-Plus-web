@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "@/components/admin/muiIcons";
 import { useTranslation } from "react-i18next";
 
 import { TextField } from "@/components/admin/ui";

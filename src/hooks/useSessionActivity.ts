@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 
 import { sameOriginApiPath, sameOriginFetchInit } from "@/utils/security";
 
-const ACTIVITY_EVENTS = ["pointerdown", "keydown", "touchstart", "scroll"] as const;
-const MERGE_MS = 1_000;
+export const ACTIVITY_EVENTS = ["pointerdown", "keydown", "touchstart"] as const;
+export const MERGE_MS = 60_000;
 const CHANNEL = "lite-session-touch";
 
 type TouchPayload = {

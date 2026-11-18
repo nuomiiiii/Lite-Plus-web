@@ -33,6 +33,7 @@ import { RequireAllowRemoteManagement } from "@/components/admin/RemoteManagemen
 import RemoteExecNodeSelector from "@/components/remote/RemoteExecNodeSelector";
 import Loading from "@/components/loading";
 import { AdminNodeLiveDataProvider } from "@/hooks/use-admin-node-live-data";
+import { startVisibleInterval } from "@/hooks/useVisibleInterval";
 import { NodeDetailsProvider, useNodeDetails, type NodeDetail } from "@/contexts/NodeDetailsContext";
 import { CommandClipboardProvider } from "@/contexts/CommandClipboardContext";
 import { useAccount } from "@/contexts/AccountContext";
@@ -234,11 +235,10 @@ function SchedulesContent() {
 
   useEffect(() => {
     if (!hasGrant || !grantExpiresAtRef.current) return;
-    const timer = window.setInterval(() => {
+    return startVisibleInterval(() => {
       if (isRemoteGrantLive(grantRef.current, grantExpiresAtRef.current)) return;
       clearGrant();
     }, 1000);
-    return () => window.clearInterval(timer);
   }, [clearGrant, hasGrant]);
 
   useEffect(() => {
@@ -1173,23 +1173,23 @@ function ScheduleRuns({
       return;
     }
     let stop = false;
-    let timer = 0;
+    let stopPolling = () => {};
     const load = async () => {
       const response = await fetch(`/api/admin/task/${current.task_id}/result`);
       const payload = await readPayload(response);
       if (stop) return;
       const rows = Array.isArray(payload?.data) ? payload.data as TaskResult[] : [];
       setResults(rows);
-      if (rows.length > 0 && rows.every((row) => row.finished_at) && timer) {
-        window.clearInterval(timer);
+      if (rows.length > 0 && rows.every((row) => row.finished_at)) {
+        stopPolling();
       }
     };
     void load();
-    timer = window.setInterval(() => void load(), 2000);
-    const timeout = window.setTimeout(() => window.clearInterval(timer), 60000);
+    stopPolling = startVisibleInterval(() => void load(), 2000);
+    const timeout = window.setTimeout(() => stopPolling(), 60000);
     return () => {
       stop = true;
-      window.clearInterval(timer);
+      stopPolling();
       window.clearTimeout(timeout);
     };
   }, [current?.task_id]);

@@ -1,10 +1,10 @@
-import { Theme } from "@radix-ui/themes";
-import "@radix-ui/themes/styles.css";
 import type { CSSProperties, ReactNode } from "react";
 
 type RadixThemeRootProps = {
   appearance: "light" | "dark";
   scaling?: "100%" | "110%";
+  plain?: boolean;
+  style?: CSSProperties;
   children: ReactNode;
 };
 
@@ -16,19 +16,18 @@ const rootStyle: CSSProperties = {
 export default function RadixThemeRoot({
   appearance,
   scaling = "110%",
+  plain = false,
+  style = rootStyle,
   children,
 }: RadixThemeRootProps) {
   return (
-    <Theme
-      appearance={appearance}
-      accentColor="blue"
-      grayColor="slate"
-      radius="large"
-      scaling={scaling}
+    <div
+      data-appearance={plain ? undefined : appearance}
+      data-scaling={plain ? undefined : scaling}
       className="theme-root"
-      style={rootStyle}
+      style={style}
     >
       {children}
-    </Theme>
+    </div>
   );
 }
