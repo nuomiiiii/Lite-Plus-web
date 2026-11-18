@@ -3,6 +3,7 @@ import Alert from "@mui/material/Alert";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import AccordionSummary from "@mui/material/AccordionSummary";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
@@ -225,6 +226,10 @@ function MetaChips({ protocol, transport, security, name }: { protocol: string; 
 
 export function SubPreviewBody({ preview }: { preview: SubPreview }) {
   const { t } = useTranslation();
+  const copied = t("nodemgt.copied");
+  const copyFailed = t("nodemgt.copy_failed");
+  const bodyText = (preview.body || "").trim();
+  const showConfigBody = Boolean(bodyText) && (preview.client !== "v2ray" || preview.links.length === 0);
   const items = [
     preview.url
       ? {
@@ -251,7 +256,7 @@ export function SubPreviewBody({ preview }: { preview: SubPreview }) {
     }),
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-  if (items.length === 0) {
+  if (items.length === 0 && !showConfigBody) {
     return (
       <Typography color="text.secondary" sx={{ fontSize: 13, lineHeight: 1.7 }}>
         {t("nodemgt.preview_empty")}
@@ -262,49 +267,105 @@ export function SubPreviewBody({ preview }: { preview: SubPreview }) {
   return (
     <Stack spacing={1.5}>
       {preview.warnings?.map((warning, index) => <Alert key={index} severity="warning">{nodemgtWarningMessage(warning, t)}</Alert>)}
-    <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
-      {items.map((item, index) => (
-        <Accordion
-          key={item.key}
-          defaultExpanded={item.defaultExpanded}
-          disableGutters
-          elevation={0}
-          square
+      {items.length > 0 ? (
+        <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
+          {items.map((item, index) => (
+            <Accordion
+              key={item.key}
+              defaultExpanded={item.defaultExpanded}
+              slotProps={{ transition: { unmountOnExit: true } }}
+              disableGutters
+              elevation={0}
+              square
+              sx={{
+                boxShadow: "none",
+                bgcolor: "transparent",
+                "&:before": { display: "none" },
+                borderTop: index === 0 ? "none" : "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ArrowDown size={16} />}
+                sx={{
+                  minHeight: 44,
+                  px: 1.5,
+                  flexDirection: "row-reverse",
+                  "& .MuiAccordionSummary-content": { my: 1, ml: 1, minWidth: 0, overflow: "hidden" },
+                  "& .MuiAccordionSummary-expandIconWrapper": { mr: 0 },
+                }}
+              >
+                {item.meta ? (
+                  <MetaChips protocol={item.meta.protocol} transport={item.meta.transport} security={item.meta.security} name={item.meta.name} />
+                ) : (
+                  <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{item.title}</Typography>
+                )}
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.5 }}>
+                <QrPanel value={item.value} label={item.label} chip={item.chip || undefined} />
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </Box>
+      ) : null}
+      {showConfigBody ? (
+        <Box
           sx={{
-            boxShadow: "none",
-            bgcolor: "transparent",
-            "&:before": { display: "none" },
-            borderTop: index === 0 ? "none" : "1px solid",
+            border: "1px solid",
             borderColor: "divider",
+            borderRadius: 1,
+            overflow: "hidden",
           }}
         >
-          <AccordionSummary
-            expandIcon={<ArrowDown size={16} />}
+          <Stack
+            direction="row"
+            spacing={1}
             sx={{
-              minHeight: 44,
               px: 1.5,
-              flexDirection: "row-reverse",
-              "& .MuiAccordionSummary-content": { my: 1, ml: 1, minWidth: 0, overflow: "hidden" },
-              "& .MuiAccordionSummary-expandIconWrapper": { mr: 0 },
+              py: 0.75,
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottom: "1px solid",
+              borderColor: "divider",
             }}
           >
-            {item.meta ? (
-              <MetaChips protocol={item.meta.protocol} transport={item.meta.transport} security={item.meta.security} name={item.meta.name} />
-            ) : (
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{item.title}</Typography>
-            )}
-          </AccordionSummary>
-          <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.5 }}>
-            <QrPanel value={item.value} label={item.label} chip={item.chip || undefined} />
-          </AccordionDetails>
-        </Accordion>
-      ))}
-    </Box>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+              {preview.client || preview.target || t("nodemgt.tpl_preview_result")}
+            </Typography>
+            <Button
+              size="small"
+              startIcon={<Copy size={14} />}
+              onClick={() => copyValue(bodyText, copied, copyFailed)}
+              sx={{ textTransform: "none" }}
+            >
+              {t("nodemgt.tpl_copy", "复制配置")}
+            </Button>
+          </Stack>
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              p: 1.5,
+              maxHeight: 280,
+              overflow: "auto",
+              bgcolor: "action.hover",
+              fontFamily: "monospace",
+              fontSize: 12,
+              lineHeight: 1.65,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {preview.body}
+          </Box>
+        </Box>
+      ) : null}
     </Stack>
   );
 }
 
 export function previewCopyText(preview: SubPreview) {
   if (preview.url) return preview.url;
-  return preview.links.join("\n");
+  if (preview.links.length) return preview.links.join("\n");
+  return preview.body || "";
 }

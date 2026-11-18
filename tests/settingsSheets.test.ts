@@ -117,10 +117,10 @@ test("old site custom page and old account page are gone", () => {
   const routes = readFileSync("src/routes.ts", "utf8");
   assert.equal(existsSync("src/pages/admin/settings/custom.tsx"), false);
   assert.equal(existsSync("src/pages/admin/account.tsx"), false);
-  assert.doesNotMatch(site, /from \"@\/components\/admin\/SettingCard\"/);
-  assert.doesNotMatch(account, /from \"@\/components\/admin\/SettingCard\"/);
-  assert.doesNotMatch(site, /from \"@\/components\/admin\/ui\"/);
-  assert.doesNotMatch(account, /from \"@\/components\/admin\/ui\"/);
-  assert.match(routes, /path: \"custom\"[\s\S]*to: \"\/admin\/settings\/site\"/);
-  assert.match(routes, /path: \"account\"[\s\S]*to: \"\/admin\/settings\/account-security\?tab=account\"/);
+  assert.doesNotMatch(site, /from "@\/components\/admin\/SettingCard"/);
+  assert.doesNotMatch(account, /from "@\/components\/admin\/SettingCard"/);
+  assert.doesNotMatch(site, /from "@\/components\/admin\/ui"/);
+  assert.doesNotMatch(account, /from "@\/components\/admin\/ui"/);
+  assert.match(routes, /path: "custom"[\s\S]*to: "\/admin\/settings\/site"/);
+  assert.match(routes, /path: "account"[\s\S]*to: "\/admin\/settings\/account-security\?tab=account"/);
 });

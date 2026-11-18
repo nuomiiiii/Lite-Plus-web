@@ -4,7 +4,7 @@ import ListItemText from "@mui/material/ListItemText";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Translate from "@mui/icons-material/Translate";
-import { Check, Moon, Sun } from "lucide-react";
+import { Check, Moon, Sun } from "@/components/admin/muiIcons";
 import { useContext, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 

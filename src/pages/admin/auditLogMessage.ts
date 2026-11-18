@@ -182,6 +182,7 @@ function nodemgtSettingLabels(raw: string, t: AuditTranslate): string {
     .filter((key) => key !== "nodemgt");
   if (keys.length === 0) return "";
   const first = t(NODEMGT_SETTING_KEY[keys[0]] ?? `nodemgt.${keys[0]}`);
+  // eslint-disable-next-line no-control-regex
   const sep = /[^\u0000-\u00ff]/.test(first) ? "、" : ", ";
   return keys
     .map((key) => {

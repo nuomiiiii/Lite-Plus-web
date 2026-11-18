@@ -18,6 +18,7 @@ import {
 } from "@/components/admin/AdminPagination";
 import { useAdminDefaultPageSize } from "@/hooks/useAdminDefaultPageSize";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
   AppDialogContent,
   Badge,
@@ -1832,16 +1833,13 @@ function ReturnRouteContent() {
     else if (activeTab === "tasks") loadTemplates(true);
   }, [activeTab, loadTemplates]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      loadSummary(true);
-      if (activeTab === "tasks") loadTasks(true);
-      else if (activeTab === "records") loadRecords(true);
-      else if (activeTab === "templates") loadTemplates(true);
-      else loadRules(true);
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [activeTab, loadRecords, loadRules, loadSummary, loadTasks, loadTemplates]);
+  useVisibleInterval(() => {
+    loadSummary(true);
+    if (activeTab === "tasks") loadTasks(true);
+    else if (activeTab === "records") loadRecords(true);
+    else if (activeTab === "templates") loadTemplates(true);
+    else loadRules(true);
+  }, 10000);
 
   const statuses = useMemo(() => new Map(taskData.statuses.map((item) => [item.task_id, item])), [taskData.statuses]);
   const reachabilityByNode = useMemo(() => {
@@ -1935,20 +1933,35 @@ function ReturnRouteContent() {
     else updateTaskQuery({ page: 1 });
   };
 
+  const probeTimersRef = useRef<Set<number>>(new Set());
+  useEffect(
+    () => () => {
+      probeTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      probeTimersRef.current.clear();
+    },
+    [],
+  );
+
   const runNow = async (id?: number) => {
     if (!id) return;
     try {
       await request("/probe", { id });
       setProbingTasks((current) => new Set(current).add(id));
       toast.success(tr("toast.probe_dispatched", "探测任务已下发，逐跳探测通常需要 10-30 秒"));
-      window.setTimeout(() => loadTasks(true), 1500);
-      window.setTimeout(() => {
+      const refreshTimer = window.setTimeout(() => {
+        probeTimersRef.current.delete(refreshTimer);
+        loadTasks(true);
+      }, 1500);
+      const clearProbingTimer = window.setTimeout(() => {
+        probeTimersRef.current.delete(clearProbingTimer);
         setProbingTasks((current) => {
           const next = new Set(current);
           next.delete(id);
           return next;
         });
       }, 45000);
+      probeTimersRef.current.add(refreshTimer);
+      probeTimersRef.current.add(clearProbingTimer);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tr("toast.probe_failed", "下发失败"));
     }

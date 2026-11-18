@@ -12,6 +12,7 @@ import {
 } from "@/components/admin/AdminPagination";
 import { AdminMobileCardStack, AdminMobileListCard } from "@/components/admin/AdminMobileListCard";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
   Table,
   TableBody,
@@ -111,11 +112,11 @@ const InnerLayout = () => {
 
   React.useEffect(() => {
     void refresh().catch(() => undefined);
-    const timer = window.setInterval(() => {
-      void refresh().catch(() => undefined);
-    }, 30_000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useVisibleInterval(() => {
+    void refresh().catch(() => undefined);
+  }, 30_000);
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filtered = React.useMemo(() => {

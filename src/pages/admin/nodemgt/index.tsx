@@ -79,6 +79,7 @@ import {
 import { useAccount } from "@/contexts/AccountContext";
 import { useNodeDetails } from "@/contexts/NodeDetailsContext";
 import { useRPC2Call } from "@/contexts/RPC2Context";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { useSettings } from "@/lib/api";
 import { writeClipboardText } from "@/utils/clipboard";
 import { createRandomId } from "@/utils/randomId";
@@ -223,6 +224,7 @@ function securitiesFor(protocol: string, transport: string) {
 }
 
 function canUseFlow(protocol: string, transport: string, security: string, _core = "xray") {
+  void _core;
   return protocol === "vless" && transport === "tcp" && (security === "tls" || security === "reality");
 }
 
@@ -2513,13 +2515,21 @@ export default function PlusAdminPage() {
 
   const siteRemoteOn = siteSettings?.allow_remote_management === true;
   const nodes = nodeDetail || [];
+  const nodeByUuid = useMemo(
+    () => new Map(nodes.map((node) => [node.uuid, node])),
+    [nodes],
+  );
   const nodeOptions = useMemo(
     () => nodes.map((node) => ({ value: node.uuid, label: node.name || node.uuid })),
     [nodes],
   );
-  const nodeName = useCallback(
-    (uuid: string) => nodeOptions.find((item) => item.value === uuid)?.label || uuid || "—",
+  const nodeNameMap = useMemo(
+    () => new Map(nodeOptions.map((item) => [item.value, item.label])),
     [nodeOptions],
+  );
+  const nodeName = useCallback(
+    (uuid: string) => nodeNameMap.get(uuid) || uuid || "—",
+    [nodeNameMap],
   );
 
   const clearGrant = useCallback(() => {
@@ -2600,7 +2610,10 @@ export default function PlusAdminPage() {
     if (reason === "no_node") return t("nodemgt.firewall_allow_need_node");
     return "";
   };
-  const inboundNodeOf = (uuid: string) => nodes.find((node) => node.uuid === uuid);
+  const inboundNodeOf = useCallback(
+    (uuid: string) => nodeByUuid.get(uuid),
+    [nodeByUuid],
+  );
   const inboundFirewallReason = (uuid: string) => inboundFirewallUnavailable(inboundNodeOf(uuid), siteRemoteOn);
 
   const applySnapshot = useCallback((snap: NodemgtSnapshot) => {
@@ -2719,15 +2732,18 @@ export default function PlusAdminPage() {
     if (next && next !== ipLog) setIpLog(next);
   }, [users, ipLog]);
 
-  const deliveryBusy = delivery.some((row) => {
-    const status = deliveryStatusOf(row);
-    return status === "saved" || status === "sent";
-  });
-  const certBusy = certs.some((row) => row.status === "pending");
-  const rootBusy = rootCerts.some((row) => row.status === "pending");
-  useEffect(() => {
-    if (!deliveryBusy && !certBusy && !rootBusy) return;
-    const timer = window.setInterval(() => {
+  const deliveryBusy = useMemo(
+    () =>
+      delivery.some((row) => {
+        const status = deliveryStatusOf(row);
+        return status === "saved" || status === "sent";
+      }),
+    [delivery],
+  );
+  const certBusy = useMemo(() => certs.some((row) => row.status === "pending"), [certs]);
+  const rootBusy = useMemo(() => rootCerts.some((row) => row.status === "pending"), [rootCerts]);
+  useVisibleInterval(
+    () => {
       void Promise.all([
         call("admin:nodemgt.control.status", {}),
         certBusy ? call("admin:nodemgt.cert.list", {}) : Promise.resolve(null),
@@ -2743,9 +2759,9 @@ export default function PlusAdminPage() {
           }
         })
         .catch(() => undefined);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [call, deliveryBusy, certBusy, rootBusy]);
+    },
+    deliveryBusy || certBusy || rootBusy ? 3000 : null,
+  );
 
   const toastAfterSync = (nodeUUID: string | undefined, rows: any[]) => {
     if (!nodeUUID) {
@@ -2761,60 +2777,146 @@ export default function PlusAdminPage() {
     toast.success(t(`nodemgt.delivery_${status}`));
   };
 
-  const nodeDelivery = (uuid: string) => delivery.find((row) => row.node_uuid === uuid);
-  const nodeDialStackOf = (uuid: string) =>
-    normalizeDialStack(nodeProfiles.find((row) => row.node_uuid === uuid)?.dial_stack);
+  const deliveryByNode = useMemo(
+    () => new Map(delivery.map((row) => [row.node_uuid, row])),
+    [delivery],
+  );
+  const nodeProfileByUuid = useMemo(
+    () => new Map(nodeProfiles.map((row) => [row.node_uuid, row])),
+    [nodeProfiles],
+  );
+  const inboundById = useMemo(
+    () => new Map(inbounds.map((row) => [row.id, row])),
+    [inbounds],
+  );
+  const outboundById = useMemo(
+    () => new Map(outbounds.map((row) => [row.id, row])),
+    [outbounds],
+  );
+  const onlineCountByPlanId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of users) {
+      if (item.plan_id && item.online) {
+        counts.set(item.plan_id, (counts.get(item.plan_id) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [users]);
 
-  const matchSearch = (row: any, keys: string[]) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return keys.some((key) => str(row[key]).toLowerCase().includes(q));
-  };
-  const matchNode = (row: any) => !nodeFilter.length || nodeFilter.includes(row.node_uuid);
+  const nodeDelivery = useCallback((uuid: string) => deliveryByNode.get(uuid), [deliveryByNode]);
+  const nodeDialStackOf = useCallback(
+    (uuid: string) => normalizeDialStack(nodeProfileByUuid.get(uuid)?.dial_stack),
+    [nodeProfileByUuid],
+  );
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const nodeFilterSet = useMemo(() => new Set(nodeFilter), [nodeFilter]);
+  const matchSearch = useCallback(
+    (row: any, keys: string[]) => {
+      if (!normalizedSearch) return true;
+      return keys.some((key) => str(row[key]).toLowerCase().includes(normalizedSearch));
+    },
+    [normalizedSearch],
+  );
+  const matchNode = useCallback(
+    (row: any) => nodeFilterSet.size === 0 || nodeFilterSet.has(row.node_uuid),
+    [nodeFilterSet],
+  );
   const nodeFilterUUID = nodeFilter.length === 1 ? nodeFilter[0] : "";
 
-  const visibleInbounds = inbounds
-    .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
-    .slice()
-    .sort((a, b) => inboundSortKey(a) - inboundSortKey(b) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
-  const visibleUsers = users.filter((row) => !isRelayAccount(row) && matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
-  const visiblePlans = plans.filter((row) => matchSearch(row, ["name"]));
-  const visibleCerts = certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"]));
-  const visibleSubs = subs.filter((row) => !isRelayAccount(row) && matchSearch(row, ["user_id", "format", "token"]));
-  const visibleOutbounds = outbounds.filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
-  const visibleRoutes = routes
-    .filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "domain"]))
-    .slice()
-    .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || byCreatedAt(a, b));
-  const visibleChains = chains
-    .filter((row) => chainOnNode(row, nodeFilter) && matchSearch({ name: row.name, landing_names: (row.landing_names || []).join(" "), source_names: (row.source_names || []).join(" ") }, ["name", "landing_names", "source_names"]))
-    .slice()
-    .sort(byCreatedAt);
-  const diagRows = Array.isArray(diag.commands) && diag.commands.length ? diag.commands : delivery;
-  const diagPending = diagRows.filter((row: any) => {
-    const status = deliveryStatusOf(row);
-    return status === "saved" || status === "sent";
-  }).length;
-  const diagFailed = diagRows.filter((row: any) => deliveryStatusOf(row) === "failed").length;
-  const overviewRows = nodeOptions
-    .filter((node) => !nodeFilter.length || nodeFilter.includes(node.value))
-    .filter((node) => matchSearch({ name: node.label }, ["name"]))
-    .map((node) => {
-      const cmd = nodeDelivery(node.value);
-      const sample =
-        inbounds.find((row) => row.node_uuid === node.value && row.enabled !== false) ||
-        outbounds.find((row) => row.node_uuid === node.value && row.enabled !== false) ||
-        routes.find((row) => row.node_uuid === node.value && row.enabled !== false);
-      const status = sample ? inboundDeliveryOf(sample, cmd) : deliveryStatusOf(cmd);
-      return {
-        node_uuid: node.value,
-        name: node.label,
-        dial_stack: normalizeDialStack(nodeProfiles.find((row) => row.node_uuid === node.value)?.dial_stack),
-        status,
-        last_error: status === "failed" ? cmd?.last_error : undefined,
-        updated_at: cmd?.updated_at || cmd?.created_at,
-      };
-    });
+  const visibleInbounds = useMemo(
+    () =>
+      inbounds
+        .filter((row) => matchNode(row) && matchSearch(row, ["name", "protocol", "core"]))
+        .slice()
+        .sort((a, b) => inboundSortKey(a) - inboundSortKey(b) || String(a.created_at || "").localeCompare(String(b.created_at || ""))),
+    [inbounds, matchNode, matchSearch],
+  );
+  const visibleUsers = useMemo(() => {
+    const visibleUsers = users.filter((row) => !isRelayAccount(row) && matchSearch(row, ["username", "display_name", "plan_name", "status"])).slice().sort(byCreatedAt);
+    return visibleUsers;
+  }, [matchSearch, users]);
+  const visiblePlans = useMemo(
+    () => plans.filter((row) => matchSearch(row, ["name"])),
+    [matchSearch, plans],
+  );
+  const visibleCerts = useMemo(
+    () => certs.filter((row) => matchNode(row) && matchSearch(row, ["domain", "status", "issuer"])),
+    [certs, matchNode, matchSearch],
+  );
+  const nonRelaySubs = useMemo(
+    () => subs.filter((row) => !isRelayAccount(row)),
+    [subs],
+  );
+  const visibleSubs = useMemo(() => {
+    const visibleSubs = subs.filter((row) => !isRelayAccount(row) && matchSearch(row, ["user_id", "format", "token"]));
+    return visibleSubs;
+  }, [matchSearch, subs]);
+  const visibleOutbounds = useMemo(() => {
+    const visibleOutbounds = outbounds.filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "protocol", "address"])).slice().sort(byCreatedAt);
+    return visibleOutbounds;
+  }, [matchNode, matchSearch, outbounds]);
+  const visibleRoutes = useMemo(
+    () =>
+      routes
+        .filter((row) => !chainManaged(row) && matchNode(row) && matchSearch(row, ["name", "domain"]))
+        .slice()
+        .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || byCreatedAt(a, b)),
+    [matchNode, matchSearch, routes],
+  );
+  const visibleChains = useMemo(
+    () =>
+      chains
+        .filter((row) => chainOnNode(row, nodeFilter) && matchSearch({ name: row.name, landing_names: (row.landing_names || []).join(" "), source_names: (row.source_names || []).join(" ") }, ["name", "landing_names", "source_names"]))
+        .slice()
+        .sort(byCreatedAt),
+    [chains, matchSearch, nodeFilter],
+  );
+  const { diagPending, diagFailed } = useMemo(() => {
+    const diagRows = Array.isArray(diag.commands) && diag.commands.length ? diag.commands : delivery;
+    let pending = 0;
+    let failed = 0;
+    for (const row of diagRows) {
+      const status = deliveryStatusOf(row);
+      if (status === "saved" || status === "sent") pending += 1;
+      else if (status === "failed") failed += 1;
+    }
+    return { diagPending: pending, diagFailed: failed };
+  }, [delivery, diag.commands]);
+  const overviewRows = useMemo(() => {
+    const sampleByNode = new Map<string, any>();
+    for (const row of inbounds) {
+      if (row.enabled !== false && row.node_uuid && !sampleByNode.has(row.node_uuid)) {
+        sampleByNode.set(row.node_uuid, row);
+      }
+    }
+    for (const row of outbounds) {
+      if (row.enabled !== false && row.node_uuid && !sampleByNode.has(row.node_uuid)) {
+        sampleByNode.set(row.node_uuid, row);
+      }
+    }
+    for (const row of routes) {
+      if (row.enabled !== false && row.node_uuid && !sampleByNode.has(row.node_uuid)) {
+        sampleByNode.set(row.node_uuid, row);
+      }
+    }
+    return nodeOptions
+      .filter((node) => nodeFilterSet.size === 0 || nodeFilterSet.has(node.value))
+      .filter((node) => matchSearch({ name: node.label }, ["name"]))
+      .map((node) => {
+        const cmd = deliveryByNode.get(node.value);
+        const sample = sampleByNode.get(node.value);
+        const status = sample ? inboundDeliveryOf(sample, cmd) : deliveryStatusOf(cmd);
+        return {
+          node_uuid: node.value,
+          name: node.label,
+          dial_stack: normalizeDialStack(nodeProfileByUuid.get(node.value)?.dial_stack),
+          status,
+          last_error: status === "failed" ? cmd?.last_error : undefined,
+          updated_at: cmd?.updated_at || cmd?.created_at,
+        };
+      });
+  }, [deliveryByNode, inbounds, matchSearch, nodeFilterSet, nodeOptions, nodeProfileByUuid, outbounds, routes]);
   const listRows =
     tab === "inbounds"
       ? visibleInbounds
@@ -2839,82 +2941,180 @@ export default function PlusAdminPage() {
     listPager.setPage(1);
   }, [tab, search, nodeFilter, listPager.setPage]);
 
-  const inboundOptions = inbounds.map((row) => ({
-    value: row.id,
-    label: `${row.name} · ${row.protocol} :${row.port}`,
-  }));
-  const forwardingSourceInboundIDs = chainSourceInboundIDs(chains);
-  const inboundBusyElsewhere = inboundBusyOutsideChain(routes, outbounds).all;
-  const inboundSourceOptions = inbounds
-    .filter((row) => row.enabled !== false && isProxyOutbound(row.protocol) && (!forwardingSourceInboundIDs.has(row.id) || row.id === sheet?.form.source_inbound_id))
-    .map((row) => ({
-      value: row.id,
-      label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
-    }));
-  const chainInboundOptions = inbounds
-    .filter((row) => isProxyOutbound(row.protocol))
-    .map((row) => ({
-      value: row.id,
-      label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
-    }));
-  const busyChainSources = new Set(
-    chains.flatMap((row) => {
-      if (sheet?.kind === "chain" && str(row.id) === str(sheet.form.id)) return [];
-      return (Array.isArray(row.sources) ? row.sources : []).map((item: any) => str(item?.source_inbound_id));
-    }),
+  const inboundOptions = useMemo(
+    () =>
+      inbounds.map((row) => ({
+        value: row.id,
+        label: `${row.name} · ${row.protocol} :${row.port}`,
+      })),
+    [inbounds],
   );
-  const chainLandingIDsInForm = new Set([
-    ...csvIDs(sheet?.form.landing_inbound_ids || ""),
-    sheet?.form.backup_id && sheet.form.backup_id !== "direct" ? sheet.form.backup_id : "",
-  ].filter(Boolean));
-  const chainFormInboundIDs = new Set([...csvIDs(sheet?.form.source_inbound_ids || ""), ...chainLandingIDsInForm]);
-  const chainLandingOptions = chainInboundOptions.filter((item) => !csvIDs(sheet?.form.source_inbound_ids || "").includes(item.value));
-  const chainSourceOptions = chainInboundOptions.filter((item) => !chainLandingIDsInForm.has(item.value) && (!busyChainSources.has(item.value) || csvIDs(sheet?.form.source_inbound_ids || "").includes(item.value)) && (!inboundBusyElsewhere.has(item.value) || chainFormInboundIDs.has(item.value)));
-  const chainBackupOptions = [
-    { value: "direct", label: t("nodemgt.builtin_direct") },
-    ...chainLandingOptions.filter((item) => item.value !== csvIDs(sheet?.form.landing_inbound_ids || "")[0]),
-  ];
-  const userOptions = users.filter((row) => !isRelayAccount(row)).map((row) => ({ value: row.id, label: row.username || row.id }));
-  const planOptions = [{ value: "", label: t("nodemgt.plan_none") }, ...plans.map((row) => ({ value: row.id, label: row.name }))];
-  const outboundOptions = outbounds.filter((row) => !chainManaged(row)).map((row) => ({ value: row.id, label: row.name }));
-  const builtinOutboundOptions = [
-    { value: "direct", label: t("nodemgt.builtin_direct") },
-    { value: "block", label: t("nodemgt.builtin_block") },
-  ];
+  const inboundLabelById = useMemo(
+    () => new Map(inboundOptions.map((item) => [item.value, item.label])),
+    [inboundOptions],
+  );
+  const forwardingSourceInboundIDs = useMemo(() => chainSourceInboundIDs(chains), [chains]);
+  const inboundBusyOutside = useMemo(() => inboundBusyOutsideChain(routes, outbounds), [outbounds, routes]);
+  const inboundBusyElsewhere = inboundBusyOutside.all;
+  const sheetKind = sheet?.kind;
+  const sheetId = sheet?.form.id || "";
   const sheetNode = sheet?.form.node_uuid || "";
-  const inboundStackOptions = inboundStacksForNode(inboundNodeOf(sheetNode));
+  const sheetName = sheet?.form.name || "";
+  const sheetInboundId = sheet?.form.inbound_id || "";
+  const sheetOutboundId = sheet?.form.outbound_id || "";
+  const sheetSourceInboundId = sheet?.form.source_inbound_id || "";
+  const sheetSourceInboundIds = sheet?.form.source_inbound_ids || "";
+  const sheetLandingInboundIds = sheet?.form.landing_inbound_ids || "";
+  const sheetBackupId = sheet?.form.backup_id || "";
+  const sheetRootCertId = sheet?.form.root_cert_id || "";
+  const sheetCertId = sheet?.form.cert_id || "";
+
+  const inboundSourceOptions = useMemo(
+    () =>
+      inbounds
+        .filter((row) => row.enabled !== false && isProxyOutbound(row.protocol) && (!forwardingSourceInboundIDs.has(row.id) || row.id === sheetSourceInboundId))
+        .map((row) => ({
+          value: row.id,
+          label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
+        })),
+    [forwardingSourceInboundIDs, inbounds, nodeName, sheetSourceInboundId],
+  );
+  const chainInboundOptions = useMemo(
+    () =>
+      inbounds
+        .filter((row) => isProxyOutbound(row.protocol))
+        .map((row) => ({
+          value: row.id,
+          label: `${nodeName(row.node_uuid)} / ${row.name} · ${row.protocol} :${row.port}`,
+        })),
+    [inbounds, nodeName],
+  );
+  const busyChainSources = useMemo(
+    () =>
+      new Set(
+        chains.flatMap((row) => {
+          if (sheetKind === "chain" && str(row.id) === str(sheetId)) return [];
+          return (Array.isArray(row.sources) ? row.sources : []).map((item: any) => str(item?.source_inbound_id));
+        }),
+      ),
+    [chains, sheetId, sheetKind],
+  );
+  const { chainLandingOptions, chainSourceOptions, chainBackupOptions } = useMemo(() => {
+    const sourceIDsList = csvIDs(sheetSourceInboundIds);
+    const sourceIDsSet = new Set(sourceIDsList);
+    const landingIDsList = csvIDs(sheetLandingInboundIds);
+    const landingInForm = new Set(
+      [...landingIDsList, sheetBackupId && sheetBackupId !== "direct" ? sheetBackupId : ""].filter(Boolean),
+    );
+    const formInboundIDs = new Set([...sourceIDsList, ...landingInForm]);
+    const landingOpts = chainInboundOptions.filter((item) => !sourceIDsSet.has(item.value));
+    const sourceOpts = chainInboundOptions.filter(
+      (item) =>
+        !landingInForm.has(item.value) &&
+        (!busyChainSources.has(item.value) || sourceIDsSet.has(item.value)) &&
+        (!inboundBusyElsewhere.has(item.value) || formInboundIDs.has(item.value)),
+    );
+    const backupOpts = [
+      { value: "direct", label: t("nodemgt.builtin_direct") },
+      ...landingOpts.filter((item) => item.value !== landingIDsList[0]),
+    ];
+    return {
+      chainLandingOptions: landingOpts,
+      chainSourceOptions: sourceOpts,
+      chainBackupOptions: backupOpts,
+    };
+  }, [busyChainSources, chainInboundOptions, inboundBusyElsewhere, sheetBackupId, sheetLandingInboundIds, sheetSourceInboundIds, t]);
+  const userOptions = useMemo(
+    () => users.filter((row) => !isRelayAccount(row)).map((row) => ({ value: row.id, label: row.username || row.id })),
+    [users],
+  );
+  const userLabelById = useMemo(
+    () => new Map(userOptions.map((item) => [item.value, item.label])),
+    [userOptions],
+  );
+  const planOptions = useMemo(
+    () => [{ value: "", label: t("nodemgt.plan_none") }, ...plans.map((row) => ({ value: row.id, label: row.name }))],
+    [plans, t],
+  );
+  const outboundOptions = useMemo(
+    () => outbounds.filter((row) => !chainManaged(row)).map((row) => ({ value: row.id, label: row.name })),
+    [outbounds],
+  );
+  const builtinOutboundOptions = useMemo(
+    () => [
+      { value: "direct", label: t("nodemgt.builtin_direct") },
+      { value: "block", label: t("nodemgt.builtin_block") },
+    ],
+    [t],
+  );
+  const outboundLabelById = useMemo(
+    () => new Map([...builtinOutboundOptions, ...outboundOptions].map((item) => [item.value, item.label])),
+    [builtinOutboundOptions, outboundOptions],
+  );
+  const inboundStackOptions = useMemo(
+    () => inboundStacksForNode(inboundNodeOf(sheetNode)),
+    [inboundNodeOf, sheetNode],
+  );
   const inboundStackValue =
     (inboundStackOptions.includes(sheet?.form.stack as (typeof STACKS)[number])
       ? sheet?.form.stack
       : inboundStackOptions[0] || sheet?.form.stack) || "";
-  const nodeInboundOptions = inboundOptions.filter((item) => {
-    const row = inbounds.find((inbound) => inbound.id === item.value);
-    if (sheetNode && row?.node_uuid !== sheetNode) return false;
-    if (sheet?.kind === "route" && forwardingSourceInboundIDs.has(item.value) && item.value !== sheet.form.inbound_id) return false;
-    return true;
-  });
-  const nodeOutboundOptions = outboundOptions.filter((item) => {
-    const row = outbounds.find((outbound) => outbound.id === item.value);
-    return !sheetNode || row?.node_uuid === sheetNode;
-  });
-  const routeOutboundChoices = [...builtinOutboundOptions, ...nodeOutboundOptions];
-  const routeBackupOptions = [
-    ...(sheet?.form.outbound_id === "direct" ? [] : [{ value: "direct", label: t("nodemgt.builtin_direct") }]),
-    ...nodeOutboundOptions.filter((item) => item.value !== sheet?.form.outbound_id),
-  ];
-  const viaOutboundOptions = outbounds
-    .filter((row) => !chainManaged(row) && (!sheetNode || row.node_uuid === sheetNode) && row.name && row.name !== sheet?.form.name)
-    .map((row) => ({ value: row.name, label: row.name }));
-  const issuedRoots = rootCerts.filter((row) => row.status === "issued" || row.id === sheet?.form.root_cert_id);
-  const issuedCerts = certs.filter(
-    (row) =>
-      (!sheetNode || row.node_uuid === sheetNode) &&
-      (row.status === "issued" || isFileCert(row) || row.id === sheet?.form.cert_id),
+  const nodeInboundOptions = useMemo(
+    () =>
+      inboundOptions.filter((item) => {
+        const row = inboundById.get(item.value);
+        if (sheetNode && row?.node_uuid !== sheetNode) return false;
+        if (sheetKind === "route" && forwardingSourceInboundIDs.has(item.value) && item.value !== sheetInboundId) return false;
+        return true;
+      }),
+    [forwardingSourceInboundIDs, inboundById, inboundOptions, sheetInboundId, sheetKind, sheetNode],
   );
-  const certOptions = [
-    { value: "", label: t("nodemgt.cert_none") },
-    ...issuedCerts.map((row) => ({ value: row.id, label: certOptionLabel(row) })),
-  ];
+  const nodeOutboundOptions = useMemo(
+    () =>
+      outboundOptions.filter((item) => {
+        const row = outboundById.get(item.value);
+        return !sheetNode || row?.node_uuid === sheetNode;
+      }),
+    [outboundById, outboundOptions, sheetNode],
+  );
+  const routeOutboundChoices = useMemo(
+    () => [...builtinOutboundOptions, ...nodeOutboundOptions],
+    [builtinOutboundOptions, nodeOutboundOptions],
+  );
+  const routeBackupOptions = useMemo(
+    () => [
+      ...(sheetOutboundId === "direct" ? [] : [{ value: "direct", label: t("nodemgt.builtin_direct") }]),
+      ...nodeOutboundOptions.filter((item) => item.value !== sheetOutboundId),
+    ],
+    [nodeOutboundOptions, sheetOutboundId, t],
+  );
+  const viaOutboundOptions = useMemo(
+    () =>
+      outbounds
+        .filter((row) => !chainManaged(row) && (!sheetNode || row.node_uuid === sheetNode) && row.name && row.name !== sheetName)
+        .map((row) => ({ value: row.name, label: row.name })),
+    [outbounds, sheetName, sheetNode],
+  );
+  const issuedRoots = useMemo(
+    () => rootCerts.filter((row) => row.status === "issued" || row.id === sheetRootCertId),
+    [rootCerts, sheetRootCertId],
+  );
+  const issuedCerts = useMemo(
+    () =>
+      certs.filter(
+        (row) =>
+          (!sheetNode || row.node_uuid === sheetNode) &&
+          (row.status === "issued" || isFileCert(row) || row.id === sheetCertId),
+      ),
+    [certs, sheetCertId, sheetNode],
+  );
+  const certOptions = useMemo(
+    () => [
+      { value: "", label: t("nodemgt.cert_none") },
+      ...issuedCerts.map((row) => ({ value: row.id, label: certOptionLabel(row) })),
+    ],
+    [issuedCerts, t],
+  );
   const bindCertPatch = (certId: string, current: FormMap = sheet?.form || {}): FormMap => {
     const cert = certs.find((row) => row.id === certId);
     const tlsDomain = str(current.tls_domain) || str(cert?.share_domain);
@@ -3302,7 +3502,7 @@ export default function PlusAdminPage() {
           setError(t("nodemgt.chain_pool_required"));
           return;
         }
-        const busy = inboundBusyOutsideChain(routes, outbounds);
+        const busy = inboundBusyOutside;
         if (sourceIDs.some((id) => busy.routeIDs.has(id))) {
           setError(t("nodemgt.chain_route_in_use"));
           return;
@@ -3609,7 +3809,12 @@ export default function PlusAdminPage() {
 
   const previewSub = async (id: string, target = "") => {
     try {
-      const row = subs.find((item) => item.id === id || item.user_id === id);
+      let row = subs.find((item) => item.id === id || item.user_id === id);
+      if (!row) {
+        const latestSubs = asList(await call("admin:nodemgt.subscription.list", {}));
+        commitRows("subs", () => latestSubs);
+        row = latestSubs.find((item) => item.id === id || item.user_id === id);
+      }
       if (!row) {
         toast.error(t("nodemgt.empty"));
         return;
@@ -3632,7 +3837,10 @@ export default function PlusAdminPage() {
     }
   };
 
-  const pendingCerts = certs.filter((row) => row.status === "pending" || row.status === "failed").length;
+  const pendingCerts = useMemo(
+    () => certs.filter((row) => row.status === "pending" || row.status === "failed").length,
+    [certs],
+  );
   const canCreate =
     tab === "inbounds" ||
     tab === "chains" ||
@@ -3947,7 +4155,7 @@ export default function PlusAdminPage() {
           hidden={subPage !== "templates"}
           sx={{ display: subPage === "templates" ? "block" : "none" }}
         >
-          <SubscriptionTemplates subs={subs.filter((row) => !isRelayAccount(row))} plans={plans} initial={templates} onChange={rememberTemplates} />
+          <SubscriptionTemplates subs={nonRelaySubs} plans={plans} initial={templates} onChange={rememberTemplates} />
         </Box>
       ) : null}
       {(tab === "subscriptions" && (subPage === "access" || subPage === "templates")) || (tab === "certs" && certPage === "issuer") ? null : (
@@ -4155,7 +4363,7 @@ export default function PlusAdminPage() {
                   width: "18%",
                   render: (row) => (
                     <CellEllipsis
-                      value={inboundOptions.find((item) => item.value === row.inbound_id)?.label || t("nodemgt.route_all_inbounds")}
+                      value={inboundLabelById.get(row.inbound_id) || t("nodemgt.route_all_inbounds")}
                     />
                   ),
                 },
@@ -4164,12 +4372,11 @@ export default function PlusAdminPage() {
                   label: t("nodemgt.col_outbound"),
                   width: "16%",
                   render: (row) => {
-                    const options = [...builtinOutboundOptions, ...outboundOptions];
-                    const primary = options.find((item) => item.value === row.outbound_id)?.label || row.outbound_id || "—";
+                    const primary = outboundLabelById.get(row.outbound_id) || row.outbound_id || "—";
                     if (chainStrategyOf(row.strategy) !== "failover") return <CellEllipsis value={primary} />;
                     const backup = row.backup_direct
                       ? t("nodemgt.builtin_direct")
-                      : options.find((item) => item.value === row.backup_outbound_id)?.label || row.backup_outbound_id || "—";
+                      : outboundLabelById.get(row.backup_outbound_id) || row.backup_outbound_id || "—";
                     return <CellEllipsis value={`${primary} / ${backup}`} />;
                   },
                 },
@@ -4311,7 +4518,7 @@ export default function PlusAdminPage() {
                   key: "online_users",
                   label: t("nodemgt.col_online_users"),
                   width: "16%",
-                  render: (row) => String(users.filter((item) => item.plan_id === row.id && item.online).length),
+                  render: (row) => String(onlineCountByPlanId.get(row.id) || 0),
                 },
                 {
                   key: "actions",
@@ -4401,7 +4608,7 @@ export default function PlusAdminPage() {
               loading={loading}
               rows={listPager.pageItems}
               columns={[
-                { key: "user", label: t("nodemgt.col_user_id"), width: "16%", render: (row) => row.username || userOptions.find((item) => item.value === row.user_id)?.label || row.user_id },
+                { key: "user", label: t("nodemgt.col_user_id"), width: "16%", render: (row) => row.username || userLabelById.get(row.user_id) || row.user_id },
                 { key: "format", label: t("nodemgt.col_format"), width: "10%", render: (row) => row.auto_detect ? t("nodemgt.tpl_auto") : displayCore(row.format) },
                 { key: "url", label: t("nodemgt.col_sub_url"), render: (row) => <CellEllipsis value={subURL(row) || "—"} /> },
                 { key: "enabled", label: t("nodemgt.col_enabled"), width: "8%", render: (row) => <EnableSwitch checked={row.enabled !== false} onChange={(next) => void toggleRowEnabled("subscription", row, next)} /> },

@@ -37,6 +37,7 @@ import { AdminMobileCardStack, AdminMobileListCard } from "@/components/admin/Ad
 import Loading from "@/components/loading";
 import SettingsPageSkeleton from "@/components/admin/SettingsPageSkeleton";
 import { AdminNodeLiveDataProvider, nodeOnlineState, useAdminNodeLiveData } from "@/hooks/use-admin-node-live-data";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { useNodeDetails, type NodeDetail } from "@/contexts/NodeDetailsContext";
 import {
   getFirewallViewSnapshot,
@@ -419,12 +420,9 @@ function FirewallContent() {
     if (stack !== stackView) setStack(stackView);
   }, [stack, stackView]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      refresh();
-    }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+  useVisibleInterval(() => {
+    refresh();
+  }, 10_000);
 
   useEffect(() => {
     if (!uuid) {
@@ -497,6 +495,8 @@ function FirewallContent() {
       next_grant?: string;
       expires_at?: string;
     };
+    void _grant;
+    void _expires;
     return view;
   };
 
@@ -1784,6 +1784,25 @@ function FirewallNodePicker({
     [available, groupFilters, onlineSet, orderedNodes, query, regionFilters, statusFilters],
   );
   const pager = useAdminPagination(filteredNodes);
+  const hoverPrefetchTimerRef = useRef<number | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (hoverPrefetchTimerRef.current !== null) {
+      window.clearTimeout(hoverPrefetchTimerRef.current);
+      hoverPrefetchTimerRef.current = null;
+    }
+  }, []);
+  const schedulePrefetch = useCallback(
+    (targetUuid: string) => {
+      if (!onPrefetch) return;
+      cancelPrefetch();
+      hoverPrefetchTimerRef.current = window.setTimeout(() => {
+        hoverPrefetchTimerRef.current = null;
+        onPrefetch(targetUuid);
+      }, 180);
+    },
+    [cancelPrefetch, onPrefetch],
+  );
+  useEffect(() => () => cancelPrefetch(), [cancelPrefetch]);
   useEffect(() => {
     pager.setPage(1);
   }, [groupFilters, query, regionFilters, pager.setPage, statusFilters]);
@@ -1815,7 +1834,8 @@ function FirewallNodePicker({
               return (
                 <div
                   key={node.uuid}
-                  onPointerEnter={() => onPrefetch?.(node.uuid)}
+                  onPointerEnter={() => schedulePrefetch(node.uuid)}
+                  onPointerLeave={cancelPrefetch}
                   onFocus={() => onPrefetch?.(node.uuid)}
                 >
                   <AdminMobileListCard
@@ -1864,7 +1884,8 @@ function FirewallNodePicker({
                     <TableRow
                       key={node.uuid}
                       className="[&>td]:align-middle"
-                      onPointerEnter={() => onPrefetch?.(node.uuid)}
+                      onPointerEnter={() => schedulePrefetch(node.uuid)}
+                      onPointerLeave={cancelPrefetch}
                       onFocus={() => onPrefetch?.(node.uuid)}
                     >
                       <TableCell className="admin-node-name-cell overflow-hidden" data-label={t("admin.nodeTable.name")}>

@@ -1,6 +1,7 @@
 import {
   createContext,
   createElement,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useOptionalAccount } from "@/contexts/AccountContext";
 import { useRPC2Call } from "@/contexts/RPC2Context";
 import type { LiveDataResponse } from "@/types/LiveData";
 import { nodeOnlineState } from "@/utils/adminNodeOnlineState";
@@ -20,6 +22,7 @@ export const ADMIN_NODE_LIVE_INTERVAL_MS = 5000;
 type AdminNodeLiveDataValue = {
   liveData: LiveDataResponse | null;
   available: boolean;
+  subscribe: () => () => void;
 };
 
 const AdminNodeLiveDataContext = createContext<AdminNodeLiveDataValue | null>(
@@ -29,15 +32,58 @@ const AdminNodeLiveDataContext = createContext<AdminNodeLiveDataValue | null>(
 let cachedLiveData: LiveDataResponse | null = null;
 let cachedAvailable = false;
 
+export function clearAdminNodeLiveDataCache(): void {
+  cachedLiveData = null;
+  cachedAvailable = false;
+}
+
+export function isUnauthorizedLiveDataError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /\b401\b|unauthorized|unauthenticated|not logged in/i.test(message);
+}
+
 function AdminNodeLiveDataPoller({ children }: { children: ReactNode }) {
   const { call } = useRPC2Call();
-  const [liveData, setLiveData] = useState<LiveDataResponse | null>(
-    () => cachedLiveData,
+  const accountContext = useOptionalAccount();
+  const loggedOut =
+    accountContext?.account !== undefined &&
+    accountContext.account !== null &&
+    !accountContext.account.logged_in;
+  const [liveData, setLiveData] = useState<LiveDataResponse | null>(() =>
+    loggedOut ? null : cachedLiveData,
   );
-  const [available, setAvailable] = useState(() => cachedAvailable);
-  const liveDataRef = useRef<LiveDataResponse | null>(cachedLiveData);
+  const [available, setAvailable] = useState(() =>
+    loggedOut ? false : cachedAvailable,
+  );
+  const [hasSubscribers, setHasSubscribers] = useState(false);
+  const subscribersRef = useRef(0);
+  const liveDataRef = useRef<LiveDataResponse | null>(
+    loggedOut ? null : cachedLiveData,
+  );
 
   useEffect(() => {
+    if (!loggedOut) return;
+    clearAdminNodeLiveDataCache();
+    liveDataRef.current = null;
+    setLiveData(null);
+    setAvailable(false);
+  }, [loggedOut]);
+
+  const subscribe = useCallback(() => {
+    subscribersRef.current += 1;
+    setHasSubscribers(true);
+    return () => {
+      subscribersRef.current = Math.max(0, subscribersRef.current - 1);
+      if (subscribersRef.current === 0) {
+        setHasSubscribers(false);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasSubscribers) return;
+    if (loggedOut) return;
+
     let timer: number | undefined;
     let stopped = false;
     let running = false;
@@ -59,6 +105,7 @@ function AdminNodeLiveDataPoller({ children }: { children: ReactNode }) {
     const fetchLatest = async () => {
       if (running || stopped || document.hidden) return;
       running = true;
+      let unauthorized = false;
       try {
         const result = await call<
           { compact: true },
@@ -73,11 +120,23 @@ function AdminNodeLiveDataPoller({ children }: { children: ReactNode }) {
         }
         cachedAvailable = true;
         setAvailable(true);
-      } catch {
-        if (!stopped && !liveDataRef.current) setAvailable(false);
+      } catch (error) {
+        if (isUnauthorizedLiveDataError(error)) {
+          unauthorized = true;
+          clearAdminNodeLiveDataCache();
+          liveDataRef.current = null;
+          if (!stopped) {
+            setLiveData(null);
+            setAvailable(false);
+          }
+        } else if (!stopped && !liveDataRef.current) {
+          setAvailable(false);
+        }
       } finally {
         running = false;
-        scheduleNext();
+        if (!unauthorized) {
+          scheduleNext();
+        }
       }
     };
 
@@ -97,11 +156,11 @@ function AdminNodeLiveDataPoller({ children }: { children: ReactNode }) {
       clearTimer();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [call]);
+  }, [call, hasSubscribers, loggedOut]);
 
   const value = useMemo(
-    () => ({ liveData, available }),
-    [liveData, available],
+    () => ({ liveData, available, subscribe }),
+    [liveData, available, subscribe],
   );
 
   return createElement(
@@ -128,5 +187,7 @@ export function useAdminNodeLiveData() {
       "useAdminNodeLiveData must be used within AdminNodeLiveDataProvider",
     );
   }
-  return context;
+  const { subscribe, liveData, available } = context;
+  useEffect(() => subscribe(), [subscribe]);
+  return { liveData, available };
 }

@@ -37,7 +37,7 @@ test("firewall policy uses one switch for both stacks", () => {
   assert.doesNotMatch(source, /disabled=\{!stacksOn.v6\}/);
   assert.match(source, /disabled=\{stackLocked\}/);
   assert.match(source, /reportedStacks\(selectedNode\)/);
-  assert.match(source, /window.setInterval\(\(\) => \{\s*refresh\(\);/);
+  assert.match(source, /useVisibleInterval\(\(\) => \{\s*refresh\(\);/);
   assert.match(source, /10_000/);
   assert.doesNotMatch(source, /void pullStacks\(\)/);
   assert.doesNotMatch(source, /stack_v4: snap\?\.stack_v4/);
@@ -138,7 +138,8 @@ test("firewall reuses the admin node list and keeps route loading on the page ch
   assert.doesNotMatch(source, /if \(isLoading\) return <Loading/);
   assert.match(source, /data-admin-route-pending=\{listPending \? "true" : undefined\}/);
   assert.match(source, /data-admin-route-pending=\{detailPending \? "true" : undefined\}/);
-  assert.match(source, /onPointerEnter=\{\(\) => onPrefetch\?\.\(node\.uuid\)\}/);
+  assert.match(source, /onPointerEnter=\{\(\) => schedulePrefetch\(node\.uuid\)\}/);
+  assert.match(source, /onPointerLeave=\{cancelPrefetch\}/);
   assert.match(source, /prefetchFirewallView/);
   assert.match(source, /prefetchProtectionView/);
   assert.match(source, /warmServiceProtection/);

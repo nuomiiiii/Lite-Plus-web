@@ -28,6 +28,7 @@ import {
   useOptionalRemoteManagementGate,
 } from "@/components/admin/RemoteManagementGate";
 import type { MenuItem as AdminMenuItem } from "@/types/menu";
+import { ADMIN_HOVER_PRELOAD_DELAY_MS } from "@/utils/adminPreload";
 import { iconMap } from "@/utils/iconHelper";
 import { preloadAdminRoute } from "@/routes";
 import { formatVersion } from "./adminShellModel";
@@ -148,6 +149,22 @@ function NavLinkItem({
   const preload = () => {
     if (!isExternal && !item.reloadDocument) void preloadAdminRoute(item.path);
   };
+  const hoverTimerRef = useRef<number | null>(null);
+  const cancelHoverPreload = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => () => cancelHoverPreload(), [cancelHoverPreload]);
+  const scheduleHoverPreload = () => {
+    if (isExternal || item.reloadDocument) return;
+    cancelHoverPreload();
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null;
+      preload();
+    }, ADMIN_HOVER_PRELOAD_DELAY_MS);
+  };
   const handleNavigateClick = (event: MouseEvent<HTMLElement>) => {
     if (
       remoteGate &&
@@ -203,7 +220,8 @@ function NavLinkItem({
       component={Link}
       to={item.path}
       selected={active}
-      onPointerEnter={preload}
+      onPointerEnter={scheduleHoverPreload}
+      onPointerLeave={cancelHoverPreload}
       onFocus={preload}
       onTouchStart={preload}
       onClick={handleNavigateClick}
@@ -355,6 +373,14 @@ function MiniFlyoutMenu({
   const open = Boolean(flyout);
   const item = flyout?.item ?? null;
   const [slide, setSlide] = useState(false);
+  const hoverTimerRef = useRef<number | null>(null);
+  const cancelFlyoutHoverPreload = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => () => cancelFlyoutHoverPreload(), [cancelFlyoutHoverPreload]);
 
   useEffect(() => {
     if (!open) {
@@ -535,6 +561,15 @@ function MiniFlyoutMenu({
                   to={child.path}
                   selected={active}
                   onPointerEnter={() => {
+                    if (isExternal) return;
+                    cancelFlyoutHoverPreload();
+                    hoverTimerRef.current = window.setTimeout(() => {
+                      hoverTimerRef.current = null;
+                      void preloadAdminRoute(child.path);
+                    }, ADMIN_HOVER_PRELOAD_DELAY_MS);
+                  }}
+                  onPointerLeave={cancelFlyoutHoverPreload}
+                  onFocus={() => {
                     if (!isExternal) void preloadAdminRoute(child.path);
                   }}
                   onClick={(event) => {

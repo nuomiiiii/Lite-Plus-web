@@ -42,39 +42,66 @@ test("prefetch does not cache a failed RPC batch as a fresh snapshot", () => {
 
 function loadPrefetch(mode: string, userGate?: Promise<void>) {
   const requests: string[] = [];
+  let httpCalls = 0;
   const context = vm.createContext({
     setTimeout,
     fetch: async (_url: string, init: { body: string }) => {
-      const { method } = JSON.parse(init.body);
-      requests.push(method);
-      if (userGate && method === "admin:nodemgt.user.list") await userGate;
+      httpCalls += 1;
+      const parsed = JSON.parse(init.body) as
+        | Array<{ id: number; method: string }>
+        | { id: number; method: string };
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of items) {
+        requests.push(item.method);
+      }
+      if (userGate && items.some((item) => item.method === "admin:nodemgt.user.list")) {
+        await userGate;
+      }
       if (
         mode === "users_network_once" &&
-        method === "admin:nodemgt.user.list" &&
-        requests.filter((item) => item === method).length === 1
+        items.some((item) => item.method === "admin:nodemgt.user.list") &&
+        requests.filter((item) => item === "admin:nodemgt.user.list").length === 1
       ) {
         throw new TypeError("Failed to fetch");
       }
-      const failed =
-        mode === "all_fail" ||
-        (mode === "primary_users_fail" && method === "admin:nodemgt.user.list") ||
-        (mode === "certs_fail" && method === "admin:nodemgt.cert.list");
+      if (mode === "all_fail") {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: { message: "audit temporary RPC batch failure" } }),
+        };
+      }
+      const respondItem = (id: number, method: string) => {
+        const failed =
+          (mode === "primary_users_fail" && method === "admin:nodemgt.user.list") ||
+          (mode === "certs_fail" && method === "admin:nodemgt.cert.list");
+        if (failed) {
+          return {
+            jsonrpc: "2.0",
+            id,
+            error: { message: `audit temporary RPC failure: ${method}` },
+          };
+        }
+        return {
+          jsonrpc: "2.0",
+          id,
+          result:
+            method === "admin:nodemgt.user.list"
+              ? [{ id: "audit-user" }]
+              : method === "admin:nodemgt.cert.list"
+                ? [{ id: "audit-cert" }]
+                : method.includes("settings") || method.includes("diag")
+                  ? {}
+                  : [],
+        };
+      };
       return {
-        ok: !failed,
-        status: failed ? 503 : 200,
+        ok: true,
+        status: 200,
         json: async () =>
-          failed
-            ? { error: { message: `audit temporary RPC failure: ${method}` } }
-            : {
-                result:
-                  method === "admin:nodemgt.user.list"
-                    ? [{ id: "audit-user" }]
-                    : method === "admin:nodemgt.cert.list"
-                      ? [{ id: "audit-cert" }]
-                      : method.includes("settings") || method.includes("diag")
-                        ? {}
-                        : [],
-              },
+          Array.isArray(parsed)
+            ? items.map((item) => respondItem(item.id, item.method))
+            : respondItem(items[0].id, items[0].method),
       };
     },
   });
@@ -93,12 +120,14 @@ function loadPrefetch(mode: string, userGate?: Promise<void>) {
     return module.exports;
   }
   const security = load(securitySource);
+  const currentText = readFileSync(path.join(webRoot, "src/pages/admin/nodemgt/prefetch.ts"), "utf8");
   return {
-    api: load(prefetchSource, (id) => {
+    api: load(currentText, (id) => {
       if (id === "@/utils/security") return security;
       throw new Error(`unexpected import: ${id}`);
     }),
     requests,
+    getHttpCalls: () => httpCalls,
   };
 }
 
@@ -116,7 +145,7 @@ test("prefetch throws later caller's primary errors on a shared in-flight batch"
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { api, requests } = loadPrefetch("certs_fail", gate);
+  const { api, requests, getHttpCalls } = loadPrefetch("certs_fail", gate);
   const users = outcome(api.prefetchNodemgtAdmin({ force: true, primary: api.nodemgtPrimaryMethods("users") }));
   const certs = outcome(api.prefetchNodemgtAdmin({ force: true, primary: api.nodemgtPrimaryMethods("certs") }));
   release();
@@ -125,6 +154,7 @@ test("prefetch throws later caller's primary errors on a shared in-flight batch"
   assert.equal(certsResult.rejected, true);
   assert.match(String(certsResult.error), /admin:nodemgt\.cert\.list/);
   assert.equal(requests.length, 14);
+  assert.equal(getHttpCalls(), 2);
   assert.equal(api.getNodemgtSnapshot()?.at > 0, false);
 });
 

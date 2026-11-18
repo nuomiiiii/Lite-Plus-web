@@ -243,8 +243,11 @@ export default function AdminShell({ content }: AdminShellProps) {
       data-admin-shell
       data-admin-nav-mini={mini ? "true" : "false"}
       onPointerOverCapture={(event) => shell.preloadAdminLink(event.target)}
-      onFocusCapture={(event) => shell.preloadAdminLink(event.target)}
-      onTouchStartCapture={(event) => shell.preloadAdminLink(event.target)}
+      onPointerOutCapture={(event) =>
+        shell.cancelPreloadAdminLink(event.target, event.relatedTarget)
+      }
+      onFocusCapture={(event) => shell.preloadAdminLink(event.target, true)}
+      onTouchStartCapture={(event) => shell.preloadAdminLink(event.target, true)}
       sx={{
         position: "relative",
         display: "flex",

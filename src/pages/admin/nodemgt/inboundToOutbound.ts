@@ -86,7 +86,7 @@ function shadowsocksCopyNetwork(inbound: any) {
     .trim()
     .toLowerCase()
     .replace(/\s/g, "")
-    .replace(/[\/+]/g, ",");
+    .replace(/[/+]/g, ",");
   if (raw === "udp") return "udp";
   if (raw === "tcp") return "tcp";
   return "tcp,udp";
@@ -370,6 +370,8 @@ export function stripFirewallGrantFields<T extends Record<string, unknown>>(raw:
     next_grant?: unknown;
     expires_at?: unknown;
   };
+  void _grant;
+  void _expires;
   return rest as T;
 }
 

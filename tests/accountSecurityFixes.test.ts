@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { avatarCropSourceRect, avatarPreviewTransform, clampAvatarPreviewOffset } from "../src/utils/avatarCrop.ts";
-import { formatSessionAge, remainingSessionLabel, sessionLastActivityMs, sessionLogoutAtMs, sessionTtlInputToSeconds } from "../src/utils/sessionTtl.ts";
+import { formatSessionAge, remainingSessionLabel, sessionLastActivityMs, sessionLogoutAtMs } from "../src/utils/sessionTtl.ts";
 import { ssoExternalId, ssoProviderKey, ssoProviderLabel } from "../src/utils/ssoIdentity.ts";
 import { isWindowsHelloPasskey } from "../src/lib/accountPasskeys.ts";
 import { withPasskeyCreatePreference } from "../src/utils/webauthn.ts";

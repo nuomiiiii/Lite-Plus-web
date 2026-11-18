@@ -241,13 +241,26 @@ async function fetchNodemgtAdmin(
     if (gen !== fetchGen) return snapshot ?? next;
     return rememberNodemgtSnapshot(next, done);
   };
-  const run = async (request: NodemgtRequest) => {
+  const runBatch = async (requests: NodemgtRequest[]) => {
+    if (!requests.length) return;
+    let outcomes: Map<string, { ok: true; value: unknown } | { ok: false; error: Error }>;
     try {
-      const value = await rpcCall(request.method, request.params);
-      assignSnapshotValue(next, request.key, value);
+      outcomes = await rpcBatchCall(requests);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      errors.set(request.method, error);
+      for (const request of requests) {
+        errors.set(request.method, error);
+      }
+      return;
+    }
+    for (const request of requests) {
+      const outcome = outcomes.get(request.method);
+      if (!outcome || !outcome.ok) {
+        const error = outcome ? outcome.error : new Error(`Missing RPC response: ${request.method}`);
+        errors.set(request.method, error);
+        continue;
+      }
+      assignSnapshotValue(next, request.key, outcome.value);
     }
   };
   const first = primary.size
@@ -256,10 +269,10 @@ async function fetchNodemgtAdmin(
   const rest = primary.size
     ? NODEMGT_REQUESTS.filter((request) => !primary.has(request.method))
     : [];
-  await Promise.all(first.map((request) => run(request)));
+  await runBatch(first);
   remember(rest.length === 0 && errors.size === 0);
   if (rest.length) {
-    await Promise.all(rest.map((request) => run(request)));
+    await runBatch(rest);
     remember(errors.size === 0);
   }
   return snapshot ?? next;
@@ -298,30 +311,59 @@ function isTransientFetchError(err: unknown) {
   return /failed to fetch|networkerror|load failed|network request failed/i.test(text);
 }
 
-async function rpcCall(method: string, params?: Record<string, unknown>) {
+async function rpcBatchCall(
+  requests: NodemgtRequest[],
+): Promise<Map<string, { ok: true; value: unknown } | { ok: false; error: Error }>> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
+      const idToMethod = new Map<number, string>();
+      const batchBody = requests.map((request) => {
+        const id = rpcSeq++;
+        idToMethod.set(id, request.method);
+        return {
+          jsonrpc: "2.0",
+          method: request.method,
+          params: request.params ?? {},
+          id,
+        };
+      });
       const response = await fetch(
         sameOriginApiPath("/api/rpc2"),
         sameOriginFetchInit({
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method,
-            params: params ?? {},
-            id: rpcSeq++,
-          }),
+          body: JSON.stringify(batchBody),
         }),
       );
       const payload = (await response.json().catch(() => null)) as
-        | { result?: unknown; error?: { message?: string } }
+        | Array<{ id?: number | string; result?: unknown; error?: { message?: string } }>
+        | { error?: { message?: string } }
         | null;
-      if (!response.ok || !payload || payload.error) {
-        throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+      if (!response.ok || !Array.isArray(payload)) {
+        const message =
+          payload && !Array.isArray(payload) && payload.error?.message
+            ? payload.error.message
+            : `HTTP ${response.status}`;
+        throw new Error(message);
       }
-      return payload.result;
+      const outcomes = new Map<
+        string,
+        { ok: true; value: unknown } | { ok: false; error: Error }
+      >();
+      for (const item of payload) {
+        const method = idToMethod.get(Number(item?.id));
+        if (!method) continue;
+        if (item?.error) {
+          outcomes.set(method, {
+            ok: false,
+            error: new Error(item.error.message || `RPC error: ${method}`),
+          });
+        } else {
+          outcomes.set(method, { ok: true, value: item?.result });
+        }
+      }
+      return outcomes;
     } catch (err) {
       lastError = err;
       if (attempt === 0 && isTransientFetchError(err)) {

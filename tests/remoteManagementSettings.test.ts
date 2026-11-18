@@ -55,8 +55,8 @@ test("remote management pages stop immediately when the site switch is turned of
   assert.doesNotMatch(syncSource, /lite\.remote-grant/);
   assert.doesNotMatch(syncSource, /setItem\(ADMIN_SETTINGS_SYNC_KEY, .*grant/);
   assert.match(gateSource, /clearStoredRemoteGrant\(\)/);
-  assert.match(gateSource, /setInterval\(refresh, 2_000\)/);
-  assert.match(gateSource, /visibilitychange/);
+  assert.match(gateSource, /useVisibleInterval\(refresh, loading \|\| !enabled \? null : 2_000/);
+  assert.match(gateSource, /runOnVisible:\s*true/);
 });
 
 test("the remote switch writes back into settings so leaving the page keeps the new value", () => {

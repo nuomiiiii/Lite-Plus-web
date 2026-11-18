@@ -192,8 +192,28 @@ export default function SubscriptionTemplates({
       openTemplate({ id: "", name: file.name, kind, content: await file.text() }, "edit");
     });
   };
-  const isDefault = (template: Template) => TEMPLATE_CLIENTS.filter((value) => kindOf(value) === template.kind)
-    .every((value) => data.bindings.some((b) => b.scope === "global" && !b.scope_id && b.client === value && b.template_id === template.id));
+  const bindingsByTemplateId = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const binding of data.bindings) {
+      const tid = String(binding.template_id || "");
+      if (!tid) continue;
+      const list = map.get(tid);
+      if (list) list.push(binding);
+      else map.set(tid, [binding]);
+    }
+    return map;
+  }, [data.bindings]);
+  const planById = useMemo(() => new Map(plans.map((item) => [item.id, item])), [plans]);
+  const subById = useMemo(() => new Map(subs.map((item) => [item.id, item])), [subs]);
+  const isDefault = useCallback(
+    (template: Template) => {
+      const bound = bindingsByTemplateId.get(template.id) || [];
+      return TEMPLATE_CLIENTS.filter((value) => kindOf(value) === template.kind).every((value) =>
+        bound.some((b) => b.scope === "global" && !b.scope_id && b.client === value),
+      );
+    },
+    [bindingsByTemplateId],
+  );
   const setDefault = (template: Template) => void run(async () => {
     const templateID = isDefault(template) ? "" : template.id;
     try {
@@ -261,7 +281,7 @@ export default function SubscriptionTemplates({
   };
 
   const rowActions = (row: Template) => {
-    const bound = data.bindings.some((b) => b.template_id === row.id);
+    const bound = (bindingsByTemplateId.get(row.id)?.length ?? 0) > 0;
     const active = isDefault(row);
     return (
       <RowActions>
@@ -369,8 +389,9 @@ export default function SubscriptionTemplates({
                 <TableBody>
                   {rows.map((row) => {
                     const active = isDefault(row);
-                    const defaults = data.bindings.filter((b) => b.scope === "global" && !b.scope_id && b.template_id === row.id).map((b) => b.client);
-                    const locations = data.bindings.filter((b) => b.scope !== "global" && b.template_id === row.id)
+                    const templateBindings = bindingsByTemplateId.get(row.id) || [];
+                    const defaults = templateBindings.filter((b) => b.scope === "global" && !b.scope_id).map((b) => b.client);
+                    const locations = templateBindings.filter((b) => b.scope !== "global")
                       .filter((b, i, all) => all.findIndex((item) => item.scope === b.scope && item.scope_id === b.scope_id) === i);
                     return (
                       <TableRow key={row.id}>
@@ -385,8 +406,8 @@ export default function SubscriptionTemplates({
                             {locations.length ? (
                               <Stack direction="row" useFlexGap sx={{ gap: 0.75, flexWrap: "wrap" }}>
                                 {locations.map((binding) => {
-                                  const source = (binding.scope === "plan" ? plans : subs).find((item) => item.id === binding.scope_id);
-                                  const clients = data.bindings.filter((b) => b.scope === binding.scope && b.scope_id === binding.scope_id && b.template_id === row.id).map((b) => b.client);
+                                  const source = (binding.scope === "plan" ? planById : subById).get(binding.scope_id);
+                                  const clients = templateBindings.filter((b) => b.scope === binding.scope && b.scope_id === binding.scope_id).map((b) => b.client);
                                   return (
                                     <Button key={`${binding.scope}/${binding.scope_id}`} size="small" onClick={() => openBindings(row, binding.scope, binding.scope_id, clients)}>
                                       {t(binding.scope === "plan" ? "nodemgt.tpl_to_plan" : "nodemgt.tpl_to_user")} · {source ? rowLabel(source) : binding.scope_id}

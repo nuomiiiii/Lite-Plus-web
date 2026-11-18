@@ -1,5 +1,8 @@
-import { useTheme } from "next-themes"
+import { useContext, type CSSProperties } from "react"
 import { toast, Toaster as Sonner, type ToasterProps } from "sonner"
+
+import { ThemeContext } from "@/contexts/ThemeContext"
+import { useSystemTheme } from "@/hooks/useSystemTheme"
 
 const SUCCESS_DURATION = 1000
 const ALERT_DURATION = 2500
@@ -19,11 +22,12 @@ toast.warning = withDuration(toast.warning, ALERT_DURATION)
 toast.error = withDuration(toast.error, ALERT_DURATION)
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  const { appearance } = useContext(ThemeContext)
+  const resolvedTheme = useSystemTheme(appearance)
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={resolvedTheme}
       className="toaster group"
       position="top-center"
       offset={{
@@ -43,7 +47,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-        } as React.CSSProperties
+        } as CSSProperties
       }
       {...props}
     />
